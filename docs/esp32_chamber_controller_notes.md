@@ -252,11 +252,8 @@ GET http://<U1-IP-Address>/printer/objects/query?print_stats&virtual_sdcard&temp
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-
-// --- Configuration ---
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-const char* U1_IP_ADDRESS = "192.168.1.150"; // Set static IP on router
+#include <math.h>
+#include "secrets.h"
 
 // --- Pin Definitions ---
 #define PIN_SERVO         18
@@ -338,7 +335,7 @@ void setup() {
     display.setCursor(0, 4);
     display.println("Connecting WiFi...");
     display.drawLine(0, 14, 128, 14, SSD1306_WHITE);
-    
+
     // Blue Zone (Y=16..63)
     display.setCursor(0, 24);
     display.print("SSID: ");
@@ -460,7 +457,7 @@ void handleWifiDisconnected(unsigned long now) {
     WiFi.reconnect();
   }
 
-  delay(250); 
+  delay(250);
 }
 
 void displayTimeoutWarning(unsigned long now) {
@@ -487,7 +484,17 @@ Mode readSwitchMode() {
   if (rawADC < 1500) return MODE_LOW;    // ~0.82V
   if (rawADC < 2500) return MODE_MED;    // ~1.65V
   if (rawADC < 3500) return MODE_HI;     // ~2.48V
-  return MODE_PURGE;                     // ~3.3V
+  if (rawADC <= 4095) return MODE_PURGE; // ~3.3V
+  return MODE_OFF;                       // Invalid ADC reading: fail safe
+}
+
+bool isFiniteNumber(JsonVariantConst value) {
+  if (!value.is<float>() && !value.is<double>() &&
+      !value.is<int>() && !value.is<unsigned int>() &&
+      !value.is<long>() && !value.is<unsigned long>()) {
+    return false;
+  }
+  return isfinite(value.as<float>());
 }
 
 void pollMoonraker() {
@@ -505,34 +512,69 @@ void pollMoonraker() {
 
     if (!error) {
       JsonObject status = doc["result"]["status"];
-      
-      // STRICT VALIDATION: Ensure cavity sensor exists and is valid
-      if (!status["temperature_sensor cavity"]["temperature"].isNull()) {
-        float parsedCavity = status["temperature_sensor cavity"]["temperature"].as<float>();
-        
-        // Plausible physical temperature sanity check (1C to 85C)
-        if (parsedCavity >= 1.0f && parsedCavity <= 85.0f) {
+      JsonObject cavity = status["temperature_sensor cavity"];
+      JsonObject extruder = status["extruder"];
+      JsonObject bed = status["heater_bed"];
+      JsonObject toolhead = status["toolhead"];
+      JsonArray position = toolhead["position"];
+      JsonObject virtualSdcard = status["virtual_sdcard"];
+      JsonObject printStats = status["print_stats"];
+      JsonObject purifier = status["purifier"];
+
+      JsonVariant cavityValue = cavity["temperature"];
+      JsonVariant nozzleValue = extruder["temperature"];
+      JsonVariant bedValue = bed["temperature"];
+      JsonVariant zValue = position[2];
+      JsonVariant progressValue = virtualSdcard["progress"];
+      JsonVariant durationValue = printStats["print_duration"];
+      JsonVariant speedValue = purifier["speed"];
+      JsonVariant enabledValue = purifier["is_enabled"];
+      const char* stateValue = printStats["state"];
+      const char* extruderName = toolhead["extruder"];
+
+      if (status && cavity && extruder && bed && toolhead && position &&
+          virtualSdcard && printStats && purifier &&
+          isFiniteNumber(cavityValue) && isFiniteNumber(nozzleValue) &&
+          isFiniteNumber(bedValue) && isFiniteNumber(zValue) &&
+          isFiniteNumber(progressValue) && isFiniteNumber(durationValue) &&
+          isFiniteNumber(speedValue) && enabledValue.is<bool>() &&
+          stateValue != nullptr && extruderName != nullptr) {
+        float parsedCavity = cavityValue.as<float>();
+        float parsedNozzle = nozzleValue.as<float>();
+        float parsedBed = bedValue.as<float>();
+        float parsedZ = zValue.as<float>();
+        float parsedProgress = progressValue.as<float>();
+        float parsedDuration = durationValue.as<float>();
+        float parsedSpeed = speedValue.as<float>();
+
+        // Reject values outside the physical/API ranges before refreshing the watchdog.
+        if (parsedCavity >= 1.0f && parsedCavity <= 85.0f &&
+            parsedNozzle >= 0.0f && parsedNozzle <= 400.0f &&
+            parsedBed >= 0.0f && parsedBed <= 150.0f &&
+            parsedZ >= -10.0f && parsedZ <= 500.0f &&
+            parsedProgress >= 0.0f && parsedProgress <= 1.0f &&
+            parsedDuration >= 0.0f && parsedDuration <= 4294967295.0f &&
+            parsedSpeed >= 0.0f && parsedSpeed <= 100.0f) {
           chamberTemp       = parsedCavity;
-          nozzleTemp        = status["extruder"]["temperature"] | 0.0f;
-          bedTemp           = status["heater_bed"]["temperature"] | 0.0f;
-          toolheadZ         = status["toolhead"]["position"][2] | 0.0f;
+          nozzleTemp        = parsedNozzle;
+          bedTemp           = parsedBed;
+          toolheadZ         = parsedZ;
 
           // Toolhead identification
-          String extStr = status["toolhead"]["extruder"] | "extruder";
+          String extStr = extruderName;
           if (extStr == "extruder1")      activeTool = "T1";
           else if (extStr == "extruder2") activeTool = "T2";
           else if (extStr == "extruder3") activeTool = "T3";
           else                            activeTool = "T0";
 
-          printProgress     = status["virtual_sdcard"]["progress"] | 0.0f;
-          printProgress     = constrain(printProgress, 0.0f, 1.0f); // Clamp 0.0-1.0
-          printState        = status["print_stats"]["state"].as<String>();
-          printDuration     = status["print_stats"]["print_duration"] | 0UL;
-          
-          // Purifier telemetry (supports 0.0-1.0 or 0-100 scale safely)
-          u1PurifierSpeed   = status["purifier"]["speed"] | 0.0f;
-          u1PurifierEnabled = status["purifier"]["is_enabled"] | false;
-          u1IsPurging       = (u1PurifierSpeed > 0.05f) || (u1PurifierEnabled && u1PurifierSpeed > 0.01f);
+          printProgress     = parsedProgress;
+          printState        = stateValue;
+          printDuration     = (unsigned long)parsedDuration;
+
+          // Normalize purifier speed to 0.0-1.0 while accepting either API scale.
+          u1PurifierSpeed = parsedSpeed > 1.0f ? parsedSpeed / 100.0f : parsedSpeed;
+          u1PurifierEnabled = enabledValue.as<bool>();
+          u1IsPurging = u1PurifierEnabled || u1PurifierSpeed > 0.05f;
 
           // Success: Refresh watchdog and mark telemetry VALID
           lastValidPollTime = millis();
@@ -543,7 +585,7 @@ void pollMoonraker() {
       }
     }
   }
-  
+
   // If HTTP failed, JSON was corrupt, or sensor was missing/insane:
   http.end();
   // Do NOT update lastValidPollTime!
@@ -605,10 +647,11 @@ void executeChamberLogic(unsigned long now) {
 
 void applyActuators(int servoAngle, int noctuaPWM, bool blowerOn, bool heatEnable) {
   // SAFETY INTERLOCK: Never run exhaust fan against a closed butterfly valve!
-  if (servoAngle == 0) {
-    noctuaPWM = 0; // Force exhaust fan OFF if valve is closed
-  } else if (noctuaPWM > 0 && servoAngle < 45) {
-    servoAngle = 90; // Force valve OPEN if exhaust fan is running
+  noctuaPWM = constrain(noctuaPWM, 0, 255);
+  if (noctuaPWM > 0) {
+    servoAngle = 90; // Any exhaust flow requires the valve fully open
+  } else {
+    servoAngle = 0;  // No exhaust flow permits the sealed position
   }
 
   // Save current commanded state for rock-solid OLED display

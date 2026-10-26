@@ -5,6 +5,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <math.h>
 #include "secrets.h"
 
 // --- Pin Definitions ---
@@ -27,40 +28,40 @@ const unsigned long POLL_INTERVAL_MS  = 2000UL;               // 2 seconds
 const unsigned long COMM_TIMEOUT_MS   = 60000UL;              // 1 minute failsafe cutoff
 const unsigned long RECONNECT_INTV_MS = 10000UL;              // 10s between reconnect attempts
 
-const unsigned long DISPLAY_INTERVAL_MS = 250UL; // 4 FPS update rate
-
 // --- State Enums ---
 enum Mode { MODE_OFF, MODE_LOW, MODE_MED, MODE_HI, MODE_PURGE };
 
-// --- Hardware Objects ---
+// --- Globals ---
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 Servo flapServo;
 
-// --- Actuator State Tracking ---
+// Actuator State Tracking
 int currentServoAngle = 0;
 int currentNoctuaPWM  = 0;
 bool currentBlowerOn  = false;
 bool currentHeaterOn  = false;
-bool autoPurgeActive  = false;
 
-// --- State & Telemetry Variables ---
+// System & Telemetry State
 Mode currentMode = MODE_OFF;
+bool telemetryValid = false;     // STRICT: Must be true for heater to energize
 float chamberTemp = 0.0;
-float nozzleTemp  = 0.0;
-float bedTemp     = 0.0;
-float toolheadZ   = 0.0;
+float nozzleTemp = 0.0;
+float bedTemp = 0.0;
+float toolheadZ = 0.0;
 String activeTool = "T0";
 float printProgress = 0.0;
 unsigned long printDuration = 0;
 String printState = "offline";
 float u1PurifierSpeed = 0.0;
+bool u1PurifierEnabled = false;
+bool u1IsPurging = false;
 
-// --- Timers (Restoring the missing ones!) ---
-unsigned long lastPollTime           = 0;
-unsigned long lastValidPollTime      = 0;
-unsigned long lastDisplayTime        = 0;
-unsigned long lastReconnectAttempt   = 0;
-unsigned long autoPurgeStartTime     = 0;
+// Timers
+unsigned long lastPollTime = 0;
+unsigned long lastValidPollTime = 0;
+unsigned long lastDisplayTime = 0;
+unsigned long lastReconnectAttempt = 0;
+const unsigned long DISPLAY_INTERVAL_MS = 250UL;
 
 void setup() {
   Serial.begin(115200);
@@ -79,13 +80,11 @@ void setup() {
 
   // Initialize I2C and OLED
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-  Wire.setClock(400000);
   if (display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR)) {
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(1);
-    
-    // Top Yellow Zone (Y=0..15): clean at Y=4 (occupies Y=4..11)
+    // Top Yellow Zone (Y=0..15): place cleanly at Y=4
     display.setCursor(0, 4);
     display.println("Connecting WiFi...");
     display.drawLine(0, 14, 128, 14, SSD1306_WHITE);
@@ -143,44 +142,44 @@ void loop() {
   }
 
   // Check 1-minute safety timeout on telemetry
+  // Use millis() directly after pollMoonraker to prevent unsigned underflow
   bool commsTimeout = (lastValidPollTime > 0 && (millis() - lastValidPollTime >= COMM_TIMEOUT_MS));
 
   if (commsTimeout) {
-    // 1. Kill the heater for safety while telemetry is missing
+    // Safety Cutoff: Suspend heater while telemetry is stale, but keep running loop
     digitalWrite(PIN_HEATER_RELAY, HIGH); // Active-LOW: HIGH = OFF
-    
-    // 2. Lock the screen on the Warning display (Do NOT draw dashboard!)
+    currentHeaterOn = false;
+    telemetryValid  = false;
     displayTimeoutWarning(now);
-  } 
-  else {
-    // Telemetry is healthy: Execute normal heating logic
+  } else {
+    // Telemetry is healthy: Execute normal environmental control logic
     executeChamberLogic(now);
-
-    // ONLY draw the normal dashboard when healthy!
-    if (now - lastDisplayTime >= DISPLAY_INTERVAL_MS) {
-      lastDisplayTime = now;
-      updateDisplay();
-    }
+    // Update OLED Display with normal dashboard
+    updateDisplay();
   }
 }
 
 void handleWifiDisconnected(unsigned long now) {
-  // Safe elapsed calculation (no unsigned underflow!)
+  // Safe elapsed calculation since last valid telemetry
   unsigned long elapsedWithoutData = (lastValidPollTime > 0) ? (now - lastValidPollTime) : now;
   bool timeoutExceeded = (elapsedWithoutData >= COMM_TIMEOUT_MS);
 
   if (timeoutExceeded) {
-    // SAFETY CUTOFF: Temporarily suspend heater while waiting for connection
+    // 60-SECOND WATCHDOG CUTOFF: Wi-Fi down too long -> cut heater
     digitalWrite(PIN_HEATER_RELAY, HIGH); // Active-LOW: HIGH = OFF
+    currentHeaterOn = false;
+    telemetryValid  = false;
   }
+  // Within the 60s grace period:
+  // Retain last known actuator states (heats through temporary Wi-Fi hiccups)
 
-  // Display "NO WI-FI" screen with status
+  // Display "NO WI-FI" screen with status and live countdown
   display.clearDisplay();
   
   // Yellow Header (Rows 0-15)
   display.setTextSize(1);
   display.setCursor(0, 0);
-  display.print("NETWORK: [CONNECTING]");
+  display.print("NETWORK: [RECONNECT]");
   display.drawLine(0, 12, 128, 12, SSD1306_WHITE);
 
   // Blue Main Body (Rows 16-63)
@@ -195,7 +194,7 @@ void handleWifiDisconnected(unsigned long now) {
     display.setCursor(0, 53);
     display.print("WAITING TO RESUME...");
   } else {
-    display.print("Attempting rejoin...");
+    display.print(currentHeaterOn ? "HEATING (GRACE PERIOD)" : "RECONNECTING...");
     display.setCursor(0, 53);
     unsigned long secLeft = (COMM_TIMEOUT_MS - elapsedWithoutData) / 1000;
     display.print("Cutoff in: ");
@@ -211,7 +210,7 @@ void handleWifiDisconnected(unsigned long now) {
     WiFi.reconnect();
   }
 
-  delay(500); 
+  delay(250);
 }
 
 void displayTimeoutWarning(unsigned long now) {
@@ -231,71 +230,25 @@ void displayTimeoutWarning(unsigned long now) {
   display.display();
 }
 
-// Mode readSwitchMode() {
-//   int rawADC = analogRead(PIN_SWITCH_ADC); // 0 to 4095
-//   // Voltage bands for 5 positions (approx 0V, 0.82V, 1.65V, 2.48V, 3.3V)
-//   if (rawADC < 400)  return MODE_OFF;    // ~0.0V
-//   if (rawADC < 1500) return MODE_LOW;    // ~0.82V
-//   if (rawADC < 2500) return MODE_MED;    // ~1.65V
-//   if (rawADC < 3500) return MODE_HI;     // ~2.48V
-//   return MODE_PURGE;                     // ~3.3V
-// }
-
 Mode readSwitchMode() {
-  // Take 10 readings and average them to eliminate ADC noise
-  long sum = 0;
-  for (int i = 0; i < 10; i++) {
-    sum += analogRead(PIN_SWITCH_ADC);
-  }
-  int rawADC = sum / 10;
-
-  // Voltage bands with clean thresholds
+  int rawADC = analogRead(PIN_SWITCH_ADC); // 0 to 4095
+  // Voltage bands for 5 positions (approx 0V, 0.82V, 1.65V, 2.48V, 3.3V)
   if (rawADC < 400)  return MODE_OFF;    // ~0.0V
   if (rawADC < 1500) return MODE_LOW;    // ~0.82V
   if (rawADC < 2500) return MODE_MED;    // ~1.65V
   if (rawADC < 3500) return MODE_HI;     // ~2.48V
-  return MODE_PURGE;                     // ~3.3V
+  if (rawADC <= 4095) return MODE_PURGE; // ~3.3V
+  return MODE_OFF;                       // Invalid ADC reading: fail safe
 }
 
-// void pollMoonraker() {
-//   HTTPClient http;
-//   String url = "http://" + String(U1_IP_ADDRESS) + 
-//                "/printer/objects/query?print_stats&virtual_sdcard&temperature_sensor%20cavity&purifier";
-//   http.begin(url);
-//   http.setTimeout(1500);
-
-//   int httpCode = http.GET();
-
-//   Serial.print("Moonraker HTTP Code: ");
-//   Serial.println(httpCode);
-
-//   if (httpCode == 200) {
-//     String payload = http.getString();
-//     // StaticJsonDocument<768> doc;
-//     // NEW (ArduinoJson v7):
-//     JsonDocument doc;
-//     DeserializationError error = deserializeJson(doc, payload);
-
-//     if (error) {
-//       Serial.print("JSON Error: ");
-//       Serial.println(error.c_str());
-//     } else {
-//       Serial.println("JSON Parsed OK!");
-//     }
-
-//     if (!error) {
-//       JsonObject status = doc["result"]["status"];
-//       chamberTemp       = status["temperature_sensor cavity"]["temperature"] | 0.0;
-//       printProgress     = status["virtual_sdcard"]["progress"] | 0.0;
-//       printState        = status["print_stats"]["state"].as<String>();
-//       u1PurifierSpeed   = status["purifier"]["speed"] | 0.0;
-      
-//       // AUTO-RESUME: Fresh valid packet received! 
-//       lastValidPollTime = millis(); 
-//     }
-//   }
-//   http.end();
-// }
+bool isFiniteNumber(JsonVariantConst value) {
+  if (!value.is<float>() && !value.is<double>() &&
+      !value.is<int>() && !value.is<unsigned int>() &&
+      !value.is<long>() && !value.is<unsigned long>()) {
+    return false;
+  }
+  return isfinite(value.as<float>());
+}
 
 void pollMoonraker() {
   HTTPClient http;
@@ -312,36 +265,98 @@ void pollMoonraker() {
 
     if (!error) {
       JsonObject status = doc["result"]["status"];
-      chamberTemp   = status["temperature_sensor cavity"]["temperature"] | 0.0;
-      nozzleTemp    = status["extruder"]["temperature"] | 0.0;
-      bedTemp       = status["heater_bed"]["temperature"] | 0.0;
-      toolheadZ     = status["toolhead"]["position"][2] | 0.0;
-      
-      // Map active extruder string to T0, T1, T2, T3
-      String extStr = status["toolhead"]["extruder"] | "extruder";
-      if (extStr == "extruder1")      activeTool = "T1";
-      else if (extStr == "extruder2") activeTool = "T2";
-      else if (extStr == "extruder3") activeTool = "T3";
-      else                            activeTool = "T0";
+      JsonObject cavity = status["temperature_sensor cavity"];
+      JsonObject extruder = status["extruder"];
+      JsonObject bed = status["heater_bed"];
+      JsonObject toolhead = status["toolhead"];
+      JsonArray position = toolhead["position"];
+      JsonObject virtualSdcard = status["virtual_sdcard"];
+      JsonObject printStats = status["print_stats"];
+      JsonObject purifier = status["purifier"];
 
-      printProgress     = status["virtual_sdcard"]["progress"] | 0.0;
-      printState        = status["print_stats"]["state"].as<String>();
-      printDuration     = status["print_stats"]["print_duration"] | 0UL;
-      u1PurifierSpeed   = status["purifier"]["speed"] | 0.0;
-      
-      lastValidPollTime = millis(); 
+      JsonVariant cavityValue = cavity["temperature"];
+      JsonVariant nozzleValue = extruder["temperature"];
+      JsonVariant bedValue = bed["temperature"];
+      JsonVariant zValue = position[2];
+      JsonVariant progressValue = virtualSdcard["progress"];
+      JsonVariant durationValue = printStats["print_duration"];
+      JsonVariant speedValue = purifier["speed"];
+      JsonVariant enabledValue = purifier["is_enabled"];
+      const char* stateValue = printStats["state"];
+      const char* extruderName = toolhead["extruder"];
+
+      if (status && cavity && extruder && bed && toolhead && position &&
+          virtualSdcard && printStats && purifier &&
+          isFiniteNumber(cavityValue) && isFiniteNumber(nozzleValue) &&
+          isFiniteNumber(bedValue) && isFiniteNumber(zValue) &&
+          isFiniteNumber(progressValue) && isFiniteNumber(durationValue) &&
+          isFiniteNumber(speedValue) && enabledValue.is<bool>() &&
+          stateValue != nullptr && extruderName != nullptr) {
+        float parsedCavity = cavityValue.as<float>();
+        float parsedNozzle = nozzleValue.as<float>();
+        float parsedBed = bedValue.as<float>();
+        float parsedZ = zValue.as<float>();
+        float parsedProgress = progressValue.as<float>();
+        float parsedDuration = durationValue.as<float>();
+        float parsedSpeed = speedValue.as<float>();
+
+        // Reject values outside the physical/API ranges before refreshing the watchdog.
+        if (parsedCavity >= 1.0f && parsedCavity <= 85.0f &&
+            parsedNozzle >= 0.0f && parsedNozzle <= 400.0f &&
+            parsedBed >= 0.0f && parsedBed <= 150.0f &&
+            parsedZ >= -10.0f && parsedZ <= 500.0f &&
+            parsedProgress >= 0.0f && parsedProgress <= 1.0f &&
+            parsedDuration >= 0.0f && parsedDuration <= 4294967295.0f &&
+            parsedSpeed >= 0.0f && parsedSpeed <= 100.0f) {
+          chamberTemp       = parsedCavity;
+          nozzleTemp        = parsedNozzle;
+          bedTemp           = parsedBed;
+          toolheadZ         = parsedZ;
+
+          // Toolhead identification
+          String extStr = extruderName;
+          if (extStr == "extruder1")      activeTool = "T1";
+          else if (extStr == "extruder2") activeTool = "T2";
+          else if (extStr == "extruder3") activeTool = "T3";
+          else                            activeTool = "T0";
+
+          printProgress     = parsedProgress;
+          printState        = stateValue;
+          printDuration     = (unsigned long)parsedDuration;
+
+          // Normalize purifier speed to 0.0-1.0 while accepting either API scale.
+          u1PurifierSpeed = parsedSpeed > 1.0f ? parsedSpeed / 100.0f : parsedSpeed;
+          u1PurifierEnabled = enabledValue.as<bool>();
+          u1IsPurging = u1PurifierEnabled || u1PurifierSpeed > 0.05f;
+
+          // Success: Refresh watchdog and mark telemetry VALID
+          lastValidPollTime = millis();
+          telemetryValid    = true;
+          http.end();
+          return;
+        }
+      }
     }
   }
+
+  // If HTTP failed, JSON was corrupt, or sensor was missing/insane:
   http.end();
+  // Do NOT update lastValidPollTime!
+  // If stale for > COMM_TIMEOUT_MS, loop() will cut heater.
 }
 
 void executeChamberLogic(unsigned long now) {
-  // 1. AUTONOMOUS PURGE SENSING:
-  bool u1IsPurging = (u1PurifierSpeed > 0.05);
+  // CRITICAL FAIL-SAFE: If telemetry is invalid/stale, heater MUST be off!
+  if (!telemetryValid) {
+    applyActuators(currentServoAngle, currentNoctuaPWM, currentBlowerOn, false);
+    return;
+  }
 
-  if ((u1IsPurging || currentMode == MODE_PURGE) && currentMode != MODE_OFF) {
-    int exhaustPWM = u1IsPurging ? map(u1PurifierSpeed * 100, 0, 100, 0, 255) : 255;
-    applyActuators(90, exhaustPWM, false, false); // Valve 90, Noctua ON, Blower OFF, Heat OFF
+  // 1. AUTONOMOUS PURGE OVERRIDE (OPTION B):
+  // Overrides ALL manual modes including MODE_OFF whenever the printer purges
+  if (u1IsPurging || currentMode == MODE_PURGE) {
+    // Valve 90 (OPEN), Exhaust Fan 100% (255), Blower OFF, Heater OFF
+    applyActuators(90, 255, false, false);
     return;
   }
 
@@ -360,12 +375,20 @@ void executeChamberLogic(unsigned long now) {
       break;
 
     case MODE_HI: { // ASA/PC: Sealed chamber, 100% recirculation, active heat
-      bool shouldHeat = false;
-      // Regulate at 50C with 1.0C hysteresis
-      if (chamberTemp > 0.0 && chamberTemp < 49.0) {
-        shouldHeat = true;
+      bool shouldHeat = currentHeaterOn; // Default: retain previous state (hysteresis)
+
+      // SOFTWARE OVER-TEMPERATURE CUTOFF: Hard limit at 60C
+      if (chamberTemp >= 60.0f) {
+        shouldHeat = false;
       }
-      applyActuators(0, 0, true, shouldHeat); // Valve 0, Noctua 0, Blower ON, Heat on demand
+      // PERSISTENT HYSTERESIS: Target 50C (ON below 49.0C, OFF at or above 50.0C)
+      else if (chamberTemp < 49.0f) {
+        shouldHeat = true;
+      } else if (chamberTemp >= 50.0f) {
+        shouldHeat = false;
+      }
+
+      applyActuators(0, 0, true, shouldHeat); // Valve 0, Noctua 0, Blower ON, Heat controlled
       break;
     }
 
@@ -375,25 +398,16 @@ void executeChamberLogic(unsigned long now) {
   }
 }
 
-// void applyActuators(int servoAngle, int noctuaPWM, bool blowerOn, bool heatEnable) {
-//   flapServo.write(servoAngle);
-//   analogWrite(PIN_NOCTUA_PWM, noctuaPWM);
-//   digitalWrite(PIN_BLOWER, blowerOn ? HIGH : LOW);
-//   // Active-LOW SSR: LOW = ON (Heater energized), HIGH = OFF (Heater dead)
-//   digitalWrite(PIN_HEATER_RELAY, heatEnable ? LOW : HIGH);
-// }
-
 void applyActuators(int servoAngle, int noctuaPWM, bool blowerOn, bool heatEnable) {
-  // ========================================================
-  // SAFETY INTERLOCK: Never blow exhaust against closed flap!
-  // ========================================================
-  if (servoAngle == 0) {
-    noctuaPWM = 0;   // If the valve is closed, force the exhaust fan OFF!
-  } else if (noctuaPWM > 0 && servoAngle < 45) {
-    servoAngle = 90; // If exhaust fan is running, force valve wide open!
+  // SAFETY INTERLOCK: Never run exhaust fan against a closed butterfly valve!
+  noctuaPWM = constrain(noctuaPWM, 0, 255);
+  if (noctuaPWM > 0) {
+    servoAngle = 90; // Any exhaust flow requires the valve fully open
+  } else {
+    servoAngle = 0;  // No exhaust flow permits the sealed position
   }
 
-  // Save current commanded state
+  // Save current commanded state for rock-solid OLED display
   currentServoAngle = servoAngle;
   currentNoctuaPWM  = noctuaPWM;
   currentBlowerOn   = blowerOn;
@@ -403,82 +417,23 @@ void applyActuators(int servoAngle, int noctuaPWM, bool blowerOn, bool heatEnabl
   flapServo.write(servoAngle);
   analogWrite(PIN_NOCTUA_PWM, noctuaPWM);
   digitalWrite(PIN_BLOWER, blowerOn ? HIGH : LOW);
+  // Active-LOW SSR: LOW = ON (Heater energized), HIGH = OFF (Heater dead)
   digitalWrite(PIN_HEATER_RELAY, heatEnable ? LOW : HIGH);
 }
 
-// void updateDisplay() {
-//   display.clearDisplay();
-
-// // Mode Header (Yellow Band, Rows 0-15) - Clean & Compact!
-//   display.setTextSize(1);
-//   display.setCursor(0, 0);
-//   switch (currentMode) {
-//     case MODE_OFF:   display.print("M: OFF/STDBY");   break;
-//     case MODE_LOW:   display.print("M: LOW/PLA");   break;
-//     case MODE_MED:   display.print("M: MED/PETG");  break;
-//     case MODE_HI:    display.print("M: HI/ASA");   break;
-//     case MODE_PURGE: display.print("M: *PURGE*"); break;
-//   }
-
-//   // Right-aligned Progress % or WiFi status (No overlap!)
-//   if (printState == "printing") {
-//     String progStr = String(int(printProgress * 100)) + "%";
-//     int xPos = 128 - (progStr.length() * 6); // Dynamically hugs the right edge
-//     display.setCursor(xPos, 0);
-//     display.print(progStr);
-//   } else {
-//     display.setCursor(114, 0);
-//     display.print(WiFi.status() == WL_CONNECTED ? "WF" : "--");
-//   }
-
-//   // Decorative divider
-//   display.drawLine(0, 12, 128, 12, SSD1306_WHITE);
-
-//   // Main Data (Blue Band, Rows 16-63)
-//   display.setCursor(0, 18);
-//   display.setTextSize(2);
-//   display.print(chamberTemp, 1);
-//   display.setTextSize(1);
-//   display.print(" C");
-
-//   display.setCursor(68, 18);
-//   // Active-LOW check: LOW = Heating
-//   if (digitalRead(PIN_HEATER_RELAY) == LOW) {
-//     display.print("HEATING");
-//   } else {
-//     display.print("HOLDING");
-//   }
-
-//   display.setCursor(68, 28);
-//   display.print(printState);
-
-//   // Actuator Status on Bottom Row - Rock Solid!
-//   display.setCursor(0, 52);
-//   display.print("VLV:");
-//   display.print(currentServoAngle == 0 ? "CLS " : "OPN ");
-
-//   display.print("EXH:");
-//   display.print(map(currentNoctuaPWM, 0, 255, 0, 100));
-//   display.print("%");
-
-//   display.display();
-// }
-
-// Formats seconds into clean "30:23" (MM:SS or HH:MM) in exactly 5 characters
+// Helper to format seconds cleanly as "30:23" (MM:SS or HH:MM) in exactly 5 characters
 void printColonTime(unsigned long totalSecs) {
-  unsigned long hrs  = totalSecs / 3600;
+  unsigned long hrs = totalSecs / 3600;
   unsigned long mins = (totalSecs % 3600) / 60;
   unsigned long secs = totalSecs % 60;
 
   if (hrs > 0) {
-    // If >= 1 hour: format as HH:MM (e.g. 01:42)
     if (hrs < 10) display.print("0");
     display.print(hrs);
     display.print(":");
     if (mins < 10) display.print("0");
     display.print(mins);
   } else {
-    // If < 1 hour: format as MM:SS (e.g. 30:23)
     if (mins < 10) display.print("0");
     display.print(mins);
     display.print(":");
@@ -489,19 +444,23 @@ void printColonTime(unsigned long totalSecs) {
 
 void updateDisplay() {
   display.clearDisplay();
-  display.setTextWrap(false); // Prevents line dropping if a string touches pixel 128
+  display.setTextWrap(false); // Prevents accidental character wrapping/line drop
 
   // ========================================================
   // 1. TOP YELLOW BAND (Rows 0 - 15): Mode & Graphical Progress
   // ========================================================
   display.setTextSize(1);
   display.setCursor(0, 2);
-  switch (currentMode) {
-    case MODE_OFF:   display.print("OFF");       break;
-    case MODE_LOW:   display.print("LOW [PLA]"); break;
-    case MODE_MED:   display.print("MED [PETG]");break;
-    case MODE_HI:    display.print("HIGH [ASA]");break;
-    case MODE_PURGE: display.print("PURGE");     break;
+  if (u1IsPurging) {
+    display.print("PURGE [AUTO]");
+  } else {
+    switch (currentMode) {
+      case MODE_OFF:   display.print("OFF");        break;
+      case MODE_LOW:   display.print("LOW [PLA]");  break;
+      case MODE_MED:   display.print("MED [PETG]"); break;
+      case MODE_HI:    display.print("HIGH [ASA]"); break;
+      case MODE_PURGE: display.print("PURGE [MAN]");break;
+    }
   }
 
   // Progress Percentage & Mini Graphical Progress Bar on Top Right
@@ -538,6 +497,7 @@ void updateDisplay() {
 
   display.setCursor(62, 16);
   display.print("| HTR: ");
+  // Active-LOW relay check: LOW = ON, HIGH = OFF (no trailing space to prevent wrap)
   display.print(currentHeaterOn ? "ON" : "OFF");
 
   // Line 2 (Y = 27): Bed Temp & Nozzle Temp
@@ -563,14 +523,14 @@ void updateDisplay() {
   display.print(exhPct);
   display.print("%");
 
-    // Line 4 (Y = 49): Elapsed Print Time (TME) & Remaining ETA in "30:23" format
+  // Line 4 (Y = 49): Elapsed Print Time, ETA, or U1 Purge Banner
   display.setCursor(0, 49);
-  if (printState == "printing") {
+  if (u1IsPurging) {
+    display.print("U1 PURGE IN PROGRESS");
+  } else if (printState == "printing") {
     display.print("TME:");
     printColonTime(printDuration);
 
-    // Starting at X=62: "| ETA:" (6 chars) + "30:23" (5 chars) = exactly 11 chars (66px)
-    // 62 + 66 = 128px (exact fit on screen with zero clipping!)
     display.setCursor(62, 49);
     display.print("| ETA:");
     if (printProgress > 0.02) {
@@ -584,6 +544,5 @@ void updateDisplay() {
     display.print("STATUS: ");
     display.print(printState);
   }
-
   display.display();
 }
