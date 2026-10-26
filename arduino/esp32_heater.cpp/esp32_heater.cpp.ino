@@ -27,6 +27,7 @@ const unsigned long PURGE_DURATION_MS = 10UL * 60UL * 1000UL; // 10 minutes
 const unsigned long POLL_INTERVAL_MS  = 2000UL;               // 2 seconds
 const unsigned long COMM_TIMEOUT_MS   = 60000UL;              // 1 minute failsafe cutoff
 const unsigned long RECONNECT_INTV_MS = 10000UL;              // 10s between reconnect attempts
+const unsigned long DISPLAY_INTERVAL_MS = 250UL;
 
 // --- State Enums ---
 enum Mode { MODE_OFF, MODE_LOW, MODE_MED, MODE_HI, MODE_PURGE };
@@ -44,6 +45,7 @@ bool currentHeaterOn  = false;
 // System & Telemetry State
 Mode currentMode = MODE_OFF;
 bool telemetryWatchdogOk = false; // Latch: True once valid telemetry received, false if watchdog expires
+bool telemetryLost = false;       // True when the most recent poll failed (grace period in progress)
 float chamberTemp = 0.0;
 float nozzleTemp = 0.0;
 float bedTemp = 0.0;
@@ -61,7 +63,6 @@ unsigned long lastPollTime = 0;
 unsigned long lastValidPollTime = 0;
 unsigned long lastDisplayTime = 0;
 unsigned long lastReconnectAttempt = 0;
-const unsigned long DISPLAY_INTERVAL_MS = 250UL;
 
 void setup() {
   Serial.begin(115200);
@@ -343,6 +344,7 @@ void pollMoonraker() {
           // Success: Refresh watchdog and mark telemetry watchdog OK
           lastValidPollTime   = millis();
           telemetryWatchdogOk = true;
+          telemetryLost       = false;
           http.end();
           return;
         }
@@ -352,6 +354,7 @@ void pollMoonraker() {
 
   // If HTTP failed, JSON was corrupt, or sensor was missing/insane:
   http.end();
+  telemetryLost = true;
   // Do NOT update lastValidPollTime!
   // If stale for > COMM_TIMEOUT_MS, loop() will cut heater.
 }
@@ -559,9 +562,22 @@ void updateDisplay() {
   display.print(exhPct);
   display.print("%");
 
-  // Line 4 (Y = 49): Elapsed Print Time, ETA, Cooldown Soak, or U1 Purge Banner
+  // Line 4 (Y = 49): Telemetry Grace Countdown, Print Time/ETA, Cooldown Soak, or Purge Banner
   display.setCursor(0, 49);
-  if (u1IsPurging) {
+  if (telemetryLost) {
+    // Telemetry dropped but still inside the 60s grace period: warn and count down
+    // to the heater suspension instead of drawing the now-stale TME/ETA values.
+    unsigned long elapsedWithoutData = millis() - lastValidPollTime;
+    unsigned long secLeft = (elapsedWithoutData < COMM_TIMEOUT_MS)
+                              ? (COMM_TIMEOUT_MS - elapsedWithoutData) / 1000
+                              : 0;
+    display.print("TELEM LOST");
+    display.setCursor(62, 49);
+    display.print("| CUT:");
+    if (secLeft < 10) display.print(" ");
+    display.print(secLeft);
+    display.print("s");
+  } else if (u1IsPurging) {
     if (bedTemp <= 60.0f) {
       display.print("U1 PURGE IN PROGRESS");
     } else {
