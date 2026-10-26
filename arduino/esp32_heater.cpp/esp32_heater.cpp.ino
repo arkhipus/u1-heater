@@ -352,11 +352,25 @@ void executeChamberLogic(unsigned long now) {
     return;
   }
 
-  // 1. AUTONOMOUS PURGE OVERRIDE (OPTION B):
-  // Overrides ALL manual modes including MODE_OFF whenever the printer purges
-  if (u1IsPurging || currentMode == MODE_PURGE) {
-    // Valve 90 (OPEN), Exhaust Fan 100% (255), Blower OFF, Heater OFF
+  // 1. AUTONOMOUS PURGE SENSING & THERMAL SHOCK COOLDOWN GATE:
+  // Manual knob PURGE triggers immediate evacuation outdoors
+  if (currentMode == MODE_PURGE) {
     applyActuators(90, 255, false, false);
+    return;
+  }
+
+  // Autonomous purge triggered by printer end-of-print sequence:
+  if (u1IsPurging) {
+    // Bed must cool to <= 60C before opening exhaust to prevent warping/thermal shock!
+    bool bedSafeToPurge = (bedTemp <= 60.0f);
+
+    if (bedSafeToPurge) {
+      // Phase 2: Bed is cool. Open valve (90 deg), blast exhaust 100% outdoors, blower & heater OFF
+      applyActuators(90, 255, false, false);
+    } else {
+      // Phase 1 (Thermal Soak): Chamber stays SEALED (0 deg), blower ON (scrubbing VOCs), heater OFF
+      applyActuators(0, 0, true, false);
+    }
     return;
   }
 
@@ -452,7 +466,11 @@ void updateDisplay() {
   display.setTextSize(1);
   display.setCursor(0, 2);
   if (u1IsPurging) {
-    display.print("PURGE [AUTO]");
+    if (bedTemp <= 60.0f) {
+      display.print("PURGE [AUTO]");
+    } else {
+      display.print("COOLDOWN");
+    }
   } else {
     switch (currentMode) {
       case MODE_OFF:   display.print("OFF");        break;
@@ -523,10 +541,17 @@ void updateDisplay() {
   display.print(exhPct);
   display.print("%");
 
-  // Line 4 (Y = 49): Elapsed Print Time, ETA, or U1 Purge Banner
+  // Line 4 (Y = 49): Elapsed Print Time, ETA, Cooldown Soak, or U1 Purge Banner
   display.setCursor(0, 49);
   if (u1IsPurging) {
-    display.print("U1 PURGE IN PROGRESS");
+    if (bedTemp <= 60.0f) {
+      display.print("U1 PURGE IN PROGRESS");
+    } else {
+      // Cooldown soak banner: e.g. "SOAK: BED 85C->60C" (fits cleanly in 128px)
+      display.print("SOAK: BED ");
+      display.print((int)bedTemp);
+      display.print("C->60C");
+    }
   } else if (printState == "printing") {
     display.print("TME:");
     printColonTime(printDuration);
