@@ -43,7 +43,7 @@ bool currentHeaterOn  = false;
 
 // System & Telemetry State
 Mode currentMode = MODE_OFF;
-bool telemetryValid = false;     // STRICT: Must be true for heater to energize
+bool telemetryWatchdogOk = false; // Latch: True once valid telemetry received, false if watchdog expires
 float chamberTemp = 0.0;
 float nozzleTemp = 0.0;
 float bedTemp = 0.0;
@@ -135,27 +135,34 @@ void loop() {
   // Read Physical 5-Way Rotary Switch
   currentMode = readSwitchMode();
 
-  // Poll Moonraker API every 2 seconds
-  if (now - lastPollTime >= POLL_INTERVAL_MS) {
+  // Poll Moonraker API every 2 seconds (or immediately on first loop pass)
+  if (lastPollTime == 0 || now - lastPollTime >= POLL_INTERVAL_MS) {
     lastPollTime = now;
     pollMoonraker();
   }
 
   // Check 1-minute safety timeout on telemetry
-  // Use millis() directly after pollMoonraker to prevent unsigned underflow
-  bool commsTimeout = (lastValidPollTime > 0 && (millis() - lastValidPollTime >= COMM_TIMEOUT_MS));
+  // If no valid packet has ever arrived (lastValidPollTime == 0), or if > 60s since last valid packet:
+  bool commsTimeout = (lastValidPollTime == 0) || (millis() - lastValidPollTime >= COMM_TIMEOUT_MS);
 
   if (commsTimeout) {
-    // Safety Cutoff: Suspend heater while telemetry is stale, but keep running loop
+    // Safety Cutoff: Suspend heater while telemetry is missing/stale, but keep running loop
     digitalWrite(PIN_HEATER_RELAY, HIGH); // Active-LOW: HIGH = OFF
     currentHeaterOn = false;
-    telemetryValid  = false;
-    displayTimeoutWarning(now);
+    telemetryWatchdogOk = false;
   } else {
-    // Telemetry is healthy: Execute normal environmental control logic
+    // Telemetry watchdog is healthy: Execute normal environmental control logic
     executeChamberLogic(now);
-    // Update OLED Display with normal dashboard
-    updateDisplay();
+  }
+
+  // Throttle OLED I2C bus traffic to DISPLAY_INTERVAL_MS (250 ms = 4 FPS)
+  if (now - lastDisplayTime >= DISPLAY_INTERVAL_MS) {
+    lastDisplayTime = now;
+    if (commsTimeout) {
+      displayTimeoutWarning(now);
+    } else {
+      updateDisplay();
+    }
   }
 }
 
@@ -168,7 +175,7 @@ void handleWifiDisconnected(unsigned long now) {
     // 60-SECOND WATCHDOG CUTOFF: Wi-Fi down too long -> cut heater
     digitalWrite(PIN_HEATER_RELAY, HIGH); // Active-LOW: HIGH = OFF
     currentHeaterOn = false;
-    telemetryValid  = false;
+    telemetryWatchdogOk = false;
   }
   // Within the 60s grace period:
   // Retain last known actuator states (heats through temporary Wi-Fi hiccups)
@@ -222,7 +229,11 @@ void displayTimeoutWarning(unsigned long now) {
 
   display.setTextSize(1);
   display.setCursor(0, 20);
-  display.print("NO TELEMETRY > 1 MIN");
+  if (lastValidPollTime == 0) {
+    display.print("WAITING FOR U1 DATA");
+  } else {
+    display.print("NO TELEMETRY > 1 MIN");
+  }
   display.setCursor(0, 34);
   display.print("HEATER: [SUSPENDED]");
   display.setCursor(0, 48);
@@ -329,9 +340,9 @@ void pollMoonraker() {
           u1PurifierEnabled = enabledValue.as<bool>();
           u1IsPurging = u1PurifierEnabled || u1PurifierSpeed > 0.05f;
 
-          // Success: Refresh watchdog and mark telemetry VALID
-          lastValidPollTime = millis();
-          telemetryValid    = true;
+          // Success: Refresh watchdog and mark telemetry watchdog OK
+          lastValidPollTime   = millis();
+          telemetryWatchdogOk = true;
           http.end();
           return;
         }
@@ -346,8 +357,8 @@ void pollMoonraker() {
 }
 
 void executeChamberLogic(unsigned long now) {
-  // CRITICAL FAIL-SAFE: If telemetry is invalid/stale, heater MUST be off!
-  if (!telemetryValid) {
+  // CRITICAL FAIL-SAFE: If telemetry has never initialized or watchdog expired, heater MUST be off!
+  if (!telemetryWatchdogOk) {
     applyActuators(currentServoAngle, currentNoctuaPWM, currentBlowerOn, false);
     return;
   }
@@ -391,15 +402,22 @@ void executeChamberLogic(unsigned long now) {
     case MODE_HI: { // ASA/PC: Sealed chamber, 100% recirculation, active heat
       bool shouldHeat = currentHeaterOn; // Default: retain previous state (hysteresis)
 
-      // SOFTWARE OVER-TEMPERATURE CUTOFF: Hard limit at 60C
-      if (chamberTemp >= 60.0f) {
-        shouldHeat = false;
-      }
-      // PERSISTENT HYSTERESIS: Target 50C (ON below 49.0C, OFF at or above 50.0C)
-      else if (chamberTemp < 49.0f) {
-        shouldHeat = true;
-      } else if (chamberTemp >= 50.0f) {
-        shouldHeat = false;
+      // TELEMETRY GRACE PERIOD (Cleanup Step 3):
+      // If telemetry dropped (stale for > 3.5s) but within the 60s watchdog window,
+      // freeze last commanded heater state rather than evaluating hysteresis on frozen sensor values!
+      bool telemetryStale = (now - lastValidPollTime > POLL_INTERVAL_MS + 1500UL);
+
+      if (!telemetryStale) {
+        // SOFTWARE OVER-TEMPERATURE CUTOFF: Hard limit at 60C
+        if (chamberTemp >= 60.0f) {
+          shouldHeat = false;
+        }
+        // PERSISTENT HYSTERESIS: Target 50C (ON below 49.0C, OFF at or above 50.0C)
+        else if (chamberTemp < 49.0f) {
+          shouldHeat = true;
+        } else if (chamberTemp >= 50.0f) {
+          shouldHeat = false;
+        }
       }
 
       applyActuators(0, 0, true, shouldHeat); // Valve 0, Noctua 0, Blower ON, Heat controlled
