@@ -1,0 +1,172 @@
+<mxfile host="app.diagrams.net" version="21.0.0">
+  <diagram id="chamber-controller" name="Chamber Controller Schematic">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+      <mxCell id="node_2" value="⚠️ 110V AC MAINS HIGH-VOLTAGE ISOLATED ZONE&#xa;(Physically separated from all low-voltage lines)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 8;strokeColor=#e53e3e;strokeWidth=2;fillColor=#fff5f5;verticalAlign=top;align=left;spacingLeft=15;spacingTop=10;fontSize=12;fontStyle=1;fontColor=#c53030;" parent="1" vertex="1">
+        <mxGeometry x="1060" y="520" width="740" height="580" as="geometry" />
+      </mxCell>
+      <mxCell id="node_3" value="24V DC POWER IN&#xa;(Main Supply from U1)&#xa;&#xa;• Pin 1: +24V DC&#xa;• Pin 2: Power GND" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#dd6b20;strokeWidth=2;fontStyle=1;fontSize=12;align=left;spacingLeft=15;" parent="1" vertex="1">
+        <mxGeometry x="60" y="100" width="200" height="100" as="geometry" />
+      </mxCell>
+      <mxCell id="node_4" value="MP1584 BUCK CONVERTER&#xa;24V In ➔ 5.00V DC Out&#xa;&#xa;• IN+  |  IN- (GND)&#xa;• OUT+ (5V)  |  OUT- (GND)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#dd6b20;strokeWidth=2;fontStyle=1;fontSize=12;align=left;spacingLeft=15;" parent="1" vertex="1">
+        <mxGeometry x="340" y="100" width="220" height="100" as="geometry" />
+      </mxCell>
+      <mxCell id="node_5" value="COMMON GROUND BUS (GND)&#xa;[ Star-ground distribution ]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#718096;strokeWidth=2;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+        <mxGeometry x="340" y="240" width="220" height="40" as="geometry" />
+      </mxCell>
+      <mxCell id="node_6" value="ESP-WROOM-32 (30-PIN)&#xa;On Terminal Shield&#xa;&#xa;[ LEFT TERMINALS ]&#xa;• VIN (5.0V Power In)&#xa;• GND (System Ground)&#xa;• 3V3 (3.3V Out)&#xa;• GPIO 21 (I2C SDA)&#xa;• GPIO 22 (I2C SCL)&#xa;• GPIO 34 (ADC: 5-Way Switch)&#xa;&#xa;[ RIGHT TERMINALS ]&#xa;• GPIO 18 (PWM: Flap Servo)&#xa;• GPIO 19 (PWM: Noctua 24V)&#xa;• GPIO 23 (Out: Blower MOSFET)&#xa;• GPIO 25 (Out: G3MB-202P SSR)&#xa;&#xa;[ WiFi: Moonraker REST API ]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;strokeWidth=3;fontStyle=1;fontSize=12;align=center;" parent="1" vertex="1">
+        <mxGeometry x="680" y="220" width="320" height="440" as="geometry" />
+      </mxCell>
+      <mxCell id="node_7" value="SSD1306 0.96&quot; OLED&#xa;(I2C: 0x3C • Yellow / Blue)&#xa;&#xa;• Pin 1: GND&#xa;• Pin 2: VCC (3.3V)&#xa;• Pin 3: SCL (GPIO 22)&#xa;• Pin 4: SDA (GPIO 21)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#805ad5;strokeWidth=2;fontStyle=1;fontSize=12;align=left;spacingLeft=15;" parent="1" vertex="1">
+        <mxGeometry x="60" y="320" width="240" height="130" as="geometry" />
+      </mxCell>
+      <mxCell id="node_8" value="RS1010 5-WAY SWITCH&#xa;(1-Pin Resistor Ladder)&#xa;&#xa;• Top: 3.3V | Bottom: GND&#xa;• 4x 10kΩ Resistors&#xa;• Pull-down: 100kΩ to GND&#xa;• Pin 1 (Wiper) ➔ GPIO 34&#xa;&#xa;[ 1:OFF | 2:LOW | 3:MED | 4:HI | 5:PURGE ]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6fffa;strokeColor=#319795;strokeWidth=2;fontStyle=1;fontSize=11;align=left;spacingLeft=12;" parent="1" vertex="1">
+        <mxGeometry x="60" y="500" width="240" height="180" as="geometry" />
+      </mxCell>
+      <mxCell id="node_9" value="MG90S METAL SERVO&#xa;(Exhaust Butterfly Flap)&#xa;&#xa;• Red: +5.0V (from Buck)&#xa;• Brown: GND (Common)&#xa;• Yellow: Signal (GPIO 18)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#d69e2e;strokeWidth=2;fontStyle=1;fontSize=12;align=left;spacingLeft=15;" parent="1" vertex="1">
+        <mxGeometry x="1160" y="60" width="260" height="100" as="geometry" />
+      </mxCell>
+      <mxCell id="node_10" value="NOCTUA NF-F12 24V PWM&#xa;(120mm Exhaust Fan)&#xa;&#xa;• Pin 1 (Yellow): +24V DC&#xa;• Pin 2 (Black): GND&#xa;• Pin 3 (Green): Tach / RPM&#xa;• Pin 4 (Blue): PWM (GPIO 19)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fff4;strokeColor=#38a169;strokeWidth=2;fontStyle=1;fontSize=12;align=left;spacingLeft=15;" parent="1" vertex="1">
+        <mxGeometry x="1160" y="200" width="260" height="110" as="geometry" />
+      </mxCell>
+      <mxCell id="node_11" value="NOYITO AOD4184 MOSFET&#xa;(Optocoupler Isolated)&#xa;&#xa;• DC+: +24V  |  DC-: GND&#xa;• IN+: GPIO 23  |  IN-: GND&#xa;• OUT+: +24V Pass-thru&#xa;• OUT-: Switched Motor (-)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;strokeWidth=2;fontStyle=1;fontSize=12;align=left;spacingLeft=15;" parent="1" vertex="1">
+        <mxGeometry x="1160" y="350" width="260" height="120" as="geometry" />
+      </mxCell>
+      <mxCell id="node_12" value="24V BLOWER FAN&#xa;(Carbon Recirculation)&#xa;&#xa;• Red Wire (+): ➔ OUT+&#xa;• Black Wire (-): ➔ OUT-&#xa;&#xa;*Feeds 24V to AEDIKO Interlock*" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fff4;strokeColor=#38a169;strokeWidth=2;fontStyle=1;fontSize=12;align=left;spacingLeft=15;" parent="1" vertex="1">
+        <mxGeometry x="1500" y="350" width="240" height="120" as="geometry" />
+      </mxCell>
+      <mxCell id="node_13" value="G3MB-202P 5V SSR MODULE&#xa;(Silent AC Solid State Relay • 2A 240V)&#xa;&#xa;[ DC CONTROL ] VCC: 5V | GND | IN: GPIO 25&#xa;[ 110V AC LOAD ] Terminal 1 | Terminal 2&#xa;(Switches 110V Live for Temp Regulation)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#dd6b20;strokeWidth=2;fontStyle=1;fontSize=11;align=left;spacingLeft=12;" parent="1" vertex="1">
+        <mxGeometry x="1160" y="580" width="260" height="110" as="geometry" />
+      </mxCell>
+      <mxCell id="node_14" value="AEDIKO 24V RELAY (INTERLOCK)&#xa;[DC+ &amp; IN Shorted ➔ Blower (+)]&#xa;[DC- ➔ Blower (-)]&#xa;&#xa;COM: In from SSR | NO: Out to KSD301&#xa;(Relay closes ONLY when blower runs!)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5f5;strokeColor=#e53e3e;strokeWidth=2;fontStyle=1;fontSize=11;align=left;spacingLeft=12;" parent="1" vertex="1">
+        <mxGeometry x="1160" y="720" width="260" height="120" as="geometry" />
+      </mxCell>
+      <mxCell id="node_15" value="110V AC MAINS INFEED&#xa;(Wall Cord)&#xa;&#xa;• Live (L): Black Wire&#xa;• Neutral (N): White Wire&#xa;• Earth (PE): Green Wire" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5f5;strokeColor=#e53e3e;strokeWidth=2;fontStyle=1;fontSize=12;align=left;spacingLeft=15;" parent="1" vertex="1">
+        <mxGeometry x="860" y="800" width="200" height="120" as="geometry" />
+      </mxCell>
+      <mxCell id="node_16" value="KSD301 70°C THERMOSTAT&#xa;[MANUAL RESET, NC]&#xa;Chamber Air Safety Cutoff" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5f5;strokeColor=#e53e3e;strokeWidth=2;fontStyle=1;fontSize=12;align=center;" parent="1" vertex="1">
+        <mxGeometry x="1160" y="870" width="260" height="70" as="geometry" />
+      </mxCell>
+      <mxCell id="node_17" value="121°C THERMAL FUSE (SF119E)&#xa;[ONE-SHOT TCO CUTOFF]&#xa;Heater Intake Meltdown Safety" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5f5;strokeColor=#e53e3e;strokeWidth=2;fontStyle=1;fontSize=12;align=center;" parent="1" vertex="1">
+        <mxGeometry x="1160" y="960" width="260" height="70" as="geometry" />
+      </mxCell>
+      <mxCell id="node_18" value="PTC HEATER ELEMENT&#xa;110V AC, 100W–150W&#xa;&#xa;• Terminal L: Fused Live&#xa;• Terminal N: Neutral" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5f5;strokeColor=#e53e3e;strokeWidth=3;fontStyle=1;fontSize=13;align=center;" parent="1" vertex="1">
+        <mxGeometry x="1500" y="830" width="220" height="120" as="geometry" />
+      </mxCell>
+      <mxCell id="node_19" value="NEON PILOT LIGHT&#xa;(Wired in parallel across PTC)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#d69e2e;strokeWidth=2;fontStyle=1;fontSize=12;align=center;" parent="1" vertex="1">
+        <mxGeometry x="1500" y="980" width="220" height="50" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_20" value="+24V" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e53e3e;strokeWidth=2;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;fontSize=10;fontColor=#e53e3e;fontStyle=1;" parent="1" source="node_3" target="node_4" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_21" value="+24V" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e53e3e;strokeWidth=2;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;fontSize=10;fontColor=#e53e3e;fontStyle=1;" parent="1" source="node_3" target="node_10" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_22" value="+24V (DC+)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e53e3e;strokeWidth=2;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;fontSize=10;fontColor=#e53e3e;fontStyle=1;" parent="1" source="node_3" target="node_11" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_23" value="+24V (OUT+)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e53e3e;strokeWidth=2;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;fontSize=10;fontColor=#e53e3e;fontStyle=1;" parent="1" source="node_11" target="node_12" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_24" value="Blower (+) ➔ DC+ &amp; IN" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e53e3e;strokeWidth=2;exitX=0.3;exitY=1;exitDx=0;exitDy=0;entryX=0.8;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#e53e3e;fontStyle=1;" parent="1" source="node_12" target="node_14" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_25" value="Blower (-) ➔ DC-" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=0.7;exitY=1;exitDx=0;exitDy=0;entryX=0.95;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" parent="1" source="node_12" target="node_14" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_26" value="GND In" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.7;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" parent="1" source="node_3" target="node_4" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_27" value="GND (OUT-)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" parent="1" source="node_4" target="node_5" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_28" value="GND" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.15;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" parent="1" source="node_5" target="node_6" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_29" value="GND (Brown)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=1;exitY=0.2;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" parent="1" source="node_5" target="node_9" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_30" value="GND (Black)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=1;exitY=0.2;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" parent="1" source="node_5" target="node_10" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_31" value="GND (DC-)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" parent="1" source="node_5" target="node_11" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_32" value="GND (SSR)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=1;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.4;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" parent="1" source="node_5" target="node_13" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_33" value="GND" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=0;exitY=0.3;exitDx=0;exitDy=0;entryX=1;entryY=0.3;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" parent="1" source="node_6" target="node_7" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_34" value="GND (Ladder)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=1;entryY=0.8;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" parent="1" source="node_6" target="node_8" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_35" value="+5.0V (VIN)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#dd6b20;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.08;entryDx=0;entryDy=0;fontSize=10;fontColor=#dd6b20;fontStyle=1;" parent="1" source="node_4" target="node_6" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_36" value="+5.0V (Red)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#dd6b20;strokeWidth=2;exitX=1;exitY=0.1;exitDx=0;exitDy=0;entryX=0;entryY=0.2;entryDx=0;entryDy=0;fontSize=10;fontColor=#dd6b20;fontStyle=1;" parent="1" source="node_4" target="node_9" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_37" value="+5.0V (SSR VCC)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#dd6b20;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.2;entryDx=0;entryDy=0;fontSize=10;fontColor=#dd6b20;fontStyle=1;" parent="1" source="node_4" target="node_13" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_38" value="+3.3V (VCC)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d53f8c;strokeWidth=2;exitX=0;exitY=0.2;exitDx=0;exitDy=0;entryX=1;entryY=0.45;entryDx=0;entryDy=0;fontSize=10;fontColor=#d53f8c;fontStyle=1;" parent="1" source="node_6" target="node_7" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_39" value="+3.3V (Ladder Top)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d53f8c;strokeWidth=2;exitX=0;exitY=0.65;exitDx=0;exitDy=0;entryX=1;entryY=0.3;entryDx=0;entryDy=0;fontSize=10;fontColor=#d53f8c;fontStyle=1;" parent="1" source="node_6" target="node_8" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_40" value="SDA (GPIO 21)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#805ad5;strokeWidth=2;exitX=0;exitY=0.4;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;fontSize=10;fontColor=#805ad5;fontStyle=1;" parent="1" source="node_6" target="node_7" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_41" value="SCL (GPIO 22)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6b46c1;strokeWidth=2;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.9;entryDx=0;entryDy=0;fontSize=10;fontColor=#6b46c1;fontStyle=1;" parent="1" source="node_6" target="node_7" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_42" value="Analog (GPIO 34)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3182ce;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.95;entryDx=0;entryDy=0;fontSize=10;fontColor=#3182ce;fontStyle=1;" parent="1" source="node_8" target="node_6" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_43" value="PWM (GPIO 18)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3182ce;strokeWidth=2;exitX=1;exitY=0.1;exitDx=0;exitDy=0;entryX=0;entryY=0.8;entryDx=0;entryDy=0;fontSize=10;fontColor=#3182ce;fontStyle=1;" parent="1" source="node_6" target="node_9" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_44" value="PWM (GPIO 19)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3182ce;strokeWidth=2;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.8;entryDx=0;entryDy=0;fontSize=10;fontColor=#3182ce;fontStyle=1;" parent="1" source="node_6" target="node_10" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_45" value="Gate (GPIO 23)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3182ce;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;fontSize=10;fontColor=#3182ce;fontStyle=1;" parent="1" source="node_6" target="node_11" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_46" value="Trigger (GPIO 25)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3182ce;strokeWidth=2;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.7;entryDx=0;entryDy=0;fontSize=10;fontColor=#3182ce;fontStyle=1;" parent="1" source="node_6" target="node_13" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_47" value="Switched GND (OUT-)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.7;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" parent="1" source="node_11" target="node_12" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_48" value="110V Live (Black)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9b111e;strokeWidth=3;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.9;entryDx=0;entryDy=0;fontSize=10;fontColor=#9b111e;fontStyle=1;" parent="1" source="node_15" target="node_13" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_49" value="SSR Switched Live" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9b111e;strokeWidth=3;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#9b111e;fontStyle=1;" parent="1" source="node_13" target="node_14" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_50" value="Fan-Gated Live (NO)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9b111e;strokeWidth=3;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#9b111e;fontStyle=1;" parent="1" source="node_14" target="node_16" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_51" value="Series Live" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9b111e;strokeWidth=3;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#9b111e;fontStyle=1;" parent="1" source="node_16" target="node_17" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_52" value="Fused Live Out" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9b111e;strokeWidth=3;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.4;entryDx=0;entryDy=0;fontSize=10;fontColor=#9b111e;fontStyle=1;" parent="1" source="node_17" target="node_18" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_53" value="110V Neutral (White)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0984e3;strokeWidth=3;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.8;entryDx=0;entryDy=0;fontSize=10;fontColor=#0984e3;fontStyle=1;" parent="1" source="node_15" target="node_18" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_54" value="Parallel Live &amp; Neutral" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9b111e;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#9b111e;fontStyle=1;" parent="1" source="node_18" target="node_19" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="edge_55" value="Earth Ground (Green)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2e7d32;strokeWidth=2;dashed=1;dashPattern=6 4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.2;entryY=1;entryDx=0;entryDy=0;fontSize=10;fontColor=#2e7d32;fontStyle=1;" parent="1" source="node_15" target="node_2" edge="1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
