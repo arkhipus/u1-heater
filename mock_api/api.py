@@ -14,7 +14,7 @@ class MockMoonraker(http.server.BaseHTTPRequestHandler):
         mock_data = {
             "result": {
                 "status": {
-                    "temperature_sensor cavity": {"temperature": 40.2},
+                    "temperature_sensor cavity": {"temperature": 44.2},
                     "extruder": {"temperature": 260.0},
                     "heater_bed": {"temperature": 100.0},
                     "toolhead": {
