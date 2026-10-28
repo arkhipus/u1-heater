@@ -1,6 +1,6 @@
 <mxfile host="Electron">
   <diagram id="chamber-controller" name="Chamber Controller Schematic">
-    <mxGraphModel dx="2053" dy="1422" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1200" math="0" shadow="0">
+    <mxGraphModel dx="1774" dy="1429" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1200" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -15,9 +15,6 @@
         </mxCell>
         <mxCell id="node_5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#718096;strokeWidth=2;fontStyle=1;fontSize=11;" value="COMMON GROUND BUS (GND)&#xa;[ Star-ground distribution ]" vertex="1">
           <mxGeometry height="40" width="220" x="340" y="240" as="geometry" />
-        </mxCell>
-        <mxCell id="WMdCMO2jiq75RD34SFOT-3" edge="1" parent="1" source="node_6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;defaultLabelBackgroundColor=page;strokeWidth=3;strokeColor=#007FFF;" target="WMdCMO2jiq75RD34SFOT-1">
-          <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="node_6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;strokeWidth=3;fontStyle=1;fontSize=12;align=center;" value="ESP-WROOM-32 (30-PIN)&lt;br&gt;On Terminal Shield&lt;br&gt;&lt;br&gt;[ LEFT TERMINALS ]&lt;br&gt;• VIN (5.0V Power In)&lt;br&gt;• GND (System Ground)&lt;br&gt;• 3V3 (3.3V Out)&lt;br&gt;• GPIO 21 (I2C SDA)&lt;br&gt;• GPIO 22 (I2C SCL)&lt;br&gt;• GPIO 34 (ADC: 5-Way Switch)&lt;br&gt;&lt;br&gt;[ RIGHT TERMINALS ]&lt;br&gt;• GPIO 18 (PWM: Flap Servo)&lt;br&gt;• GPIO 19 (PWM: Noctua 24V)&lt;br&gt;• GPIO 23 (Out: Blower MOSFET)&lt;br&gt;• GPIO 25 (Out: 110V Heater Relay)&lt;br&gt;&lt;br&gt;[ WiFi: Moonraker REST API ]" vertex="1">
           <mxGeometry height="440" width="320" x="640" y="280" as="geometry" />
@@ -104,13 +101,11 @@
           </mxGeometry>
         </mxCell>
         <mxCell id="edge_27" edge="1" parent="1" source="node_5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=1;exitY=0.2;exitDx=0;exitDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" target="n9jAuuvvDKQ9iI4_x3iX-28" value="GND">
-          <mxGeometry relative="1" x="0.9234" as="geometry">
+          <mxGeometry relative="1" x="0.9208" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="950" y="248" />
-              <mxPoint x="950" y="117.1" />
-              <mxPoint x="1060" y="117.1" />
-              <mxPoint x="1060" y="125" />
+              <mxPoint x="1110" y="248" />
+              <mxPoint x="1110" y="125" />
             </Array>
             <mxPoint x="1100" y="120" as="targetPoint" />
           </mxGeometry>
@@ -125,11 +120,11 @@
           </mxGeometry>
         </mxCell>
         <mxCell id="edge_29" edge="1" parent="1" source="node_5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" target="node_11" value="GND (DC-)">
-          <mxGeometry relative="1" x="0.2533" y="-10" as="geometry">
+          <mxGeometry relative="1" x="0.84" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="990" y="260" />
-              <mxPoint x="990" y="410" />
+              <mxPoint x="980" y="260" />
+              <mxPoint x="980" y="410" />
             </Array>
           </mxGeometry>
         </mxCell>
@@ -155,12 +150,14 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="edge_32" edge="1" parent="1" source="node_6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=-0.009;exitY=0.906;exitDx=0;exitDy=0;entryX=1;entryY=0.8;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;exitPerimeter=0;" target="node_8" value="GND (Ladder)">
-          <mxGeometry relative="1" x="0.0561" as="geometry">
+        <mxCell id="edge_32" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;fontSize=10;fontColor=#4a5568;fontStyle=1;entryX=1;entryY=0.25;entryDx=0;entryDy=0;" target="node_8" value="GND (Ladder)">
+          <mxGeometry relative="1" x="0.5077" y="-5" as="geometry">
+            <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="390" y="678.6" />
-              <mxPoint x="390" y="654" />
+              <mxPoint x="460" y="555" />
             </Array>
+            <mxPoint x="460" y="390" as="sourcePoint" />
+            <mxPoint x="370" y="530" as="targetPoint" />
           </mxGeometry>
         </mxCell>
         <mxCell id="edge_33" edge="1" parent="1" source="node_4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#dd6b20;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.42;entryY=-0.007;entryDx=0;entryDy=0;fontSize=10;fontColor=#dd6b20;fontStyle=1;entryPerimeter=0;" target="node_6" value="+5.0V (VIN)">
@@ -184,8 +181,14 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="edge_36" edge="1" parent="1" source="node_6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d53f8c;strokeWidth=2;exitX=0;exitY=0.65;exitDx=0;exitDy=0;entryX=1;entryY=0.3;entryDx=0;entryDy=0;fontSize=10;fontColor=#d53f8c;fontStyle=1;" target="node_8" value="+3.3V (Ladder Top)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="edge_36" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d53f8c;strokeWidth=2;entryX=1;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;fontColor=#d53f8c;fontStyle=1;" target="node_8" value="+3.3V (Ladder Top)">
+          <mxGeometry relative="1" x="0.5" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="500" y="600" />
+            </Array>
+            <mxPoint x="500" y="360" as="sourcePoint" />
+          </mxGeometry>
         </mxCell>
         <mxCell id="edge_37" edge="1" parent="1" source="node_6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#805ad5;strokeWidth=2;exitX=0;exitY=0.4;exitDx=0;exitDy=0;entryX=0.998;entryY=0.573;entryDx=0;entryDy=0;fontSize=10;fontColor=#805ad5;fontStyle=1;entryPerimeter=0;" target="node_7" value="SDA (GPIO 21)">
           <mxGeometry relative="1" as="geometry">
@@ -203,11 +206,10 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="edge_39" edge="1" parent="1" source="node_8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3182ce;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;fontSize=10;fontColor=#3182ce;fontStyle=1;entryX=-0.004;entryY=0.808;entryDx=0;entryDy=0;entryPerimeter=0;" target="node_6" value="Analog (GPIO 34)">
-          <mxGeometry relative="1" x="-0.054" as="geometry">
+        <mxCell id="edge_39" edge="1" parent="1" source="node_8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3182ce;strokeWidth=2;exitX=1.007;exitY=0.69;exitDx=0;exitDy=0;fontSize=10;fontColor=#3182ce;fontStyle=1;entryX=-0.004;entryY=0.808;entryDx=0;entryDy=0;entryPerimeter=0;exitPerimeter=0;" target="node_6" value="Analog (GPIO 34)">
+          <mxGeometry relative="1" x="-0.1629" as="geometry">
             <Array as="points">
-              <mxPoint x="440" y="600" />
-              <mxPoint x="440" y="635.5" />
+              <mxPoint x="301.7" y="635.5" />
             </Array>
             <mxPoint x="670" y="560" as="targetPoint" />
           </mxGeometry>
@@ -223,11 +225,12 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="edge_41" edge="1" parent="1" source="node_6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3182ce;strokeWidth=2;exitX=1;exitY=0.353;exitDx=0;exitDy=0;entryX=0;entryY=0.8;entryDx=0;entryDy=0;fontSize=10;fontColor=#3182ce;fontStyle=1;exitPerimeter=0;" target="node_10" value="PWM (GPIO 19)">
-          <mxGeometry relative="1" x="-0.5969" as="geometry">
+        <mxCell id="edge_41" edge="1" parent="1" source="node_6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#3182ce;strokeWidth=2;exitX=1.009;exitY=0.162;exitDx=0;exitDy=0;entryX=0;entryY=0.8;entryDx=0;entryDy=0;fontSize=10;fontColor=#3182ce;fontStyle=1;exitPerimeter=0;" target="node_10" value="PWM (GPIO 19)">
+          <mxGeometry relative="1" x="-0.0907" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="1100" y="435.3" />
+              <mxPoint x="962.9" y="350" />
+              <mxPoint x="1100" y="350" />
               <mxPoint x="1100" y="288" />
             </Array>
           </mxGeometry>
@@ -437,11 +440,14 @@
         <mxCell id="n9jAuuvvDKQ9iI4_x3iX-33" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;8-pin connector - power&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- AC N&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- AC L&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- KSD301&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- KSD301&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;-&amp;nbsp;&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;-&amp;nbsp;&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- +24v in&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- GND&lt;/font&gt;&lt;/div&gt;" vertex="1">
           <mxGeometry height="200" width="200" x="260" y="810" as="geometry" />
         </mxCell>
-        <mxCell id="n9jAuuvvDKQ9iI4_x3iX-34" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;font style=&quot;text-align: left; font-size: 16px;&quot;&gt;8-pin connector - out&lt;/font&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;font-size: 16px; background-color: transparent;&quot;&gt;- + 24v&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;font-size: 16px;&quot;&gt;- Servo PWM&lt;/span&gt;&lt;span style=&quot;font-size: 16px; background-color: transparent;&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- Exhaust fan PWM&lt;/font&gt;&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;font-size: 16px; background-color: transparent;&quot;&gt;- GND&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;font-size: 16px;&quot;&gt;- + 3.3v&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- Display SCL&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- Display SDA&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- ADC mode selector&lt;/font&gt;&lt;/div&gt;" vertex="1">
+        <mxCell id="n9jAuuvvDKQ9iI4_x3iX-34" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="&lt;font style=&quot;text-align: left; font-size: 16px;&quot;&gt;8-pin connector - out&lt;/font&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;font-size: 16px; background-color: transparent;&quot;&gt;- + 24v&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;font-size: 16px;&quot;&gt;- Servo PWM&lt;/span&gt;&lt;span style=&quot;font-size: 16px; background-color: transparent;&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- Exhaust fan PWM&lt;/font&gt;&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;font-size: 16px; background-color: transparent;&quot;&gt;- GND&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;span style=&quot;font-size: 16px;&quot;&gt;- + 3.3v&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- Display SCL&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- Discpal SDA&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 16px;&quot;&gt;- Mode selecctor&lt;/font&gt;&lt;/div&gt;" vertex="1">
           <mxGeometry height="200" width="200" x="40" y="810" as="geometry" />
         </mxCell>
-        <mxCell id="WMdCMO2jiq75RD34SFOT-1" parent="1" style="ellipse;whiteSpace=wrap;html=1;shapeInside=1;aspect=fixed;strokeWidth=2;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="USB-C" vertex="1">
-          <mxGeometry height="70" width="70" x="765" y="750" as="geometry" />
+        <mxCell id="n9jAuuvvDKQ9iI4_x3iX-35" parent="1" style="ellipse;whiteSpace=wrap;html=1;shapeInside=1;fillColor=none;dashed=1;dashPattern=8 8;" value="" vertex="1">
+          <mxGeometry height="340" width="20" x="990" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="n9jAuuvvDKQ9iI4_x3iX-36" parent="1" style="ellipse;whiteSpace=wrap;html=1;shapeInside=1;fillColor=none;dashed=1;dashPattern=8 8;" value="" vertex="1">
+          <mxGeometry height="300" width="20" x="530" y="350" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
