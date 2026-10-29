@@ -9,13 +9,14 @@
 #include "secrets.h"
 
 // --- Pin Definitions ---
-#define PIN_SERVO         18
-#define PIN_NOCTUA_PWM    19
-#define PIN_BLOWER        23
-#define PIN_HEATER_RELAY  25  // Active-LOW SSR: LOW=ON, HIGH=OFF
-#define PIN_SWITCH_ADC    34
-#define PIN_I2C_SDA       21
-#define PIN_I2C_SCL       22
+#define PIN_SERVO          18
+#define PIN_NOCTUA_PWM     19
+#define PIN_BLOWER         23
+#define PIN_HEATER_RELAY   25  // Active-LOW SSR: LOW=ON, HIGH=OFF
+#define PIN_SWITCH_ADC     34
+#define PIN_U1_PURGE_SENSE 35  // Hardware PWM input from U1 Top Port Pin 5 (PA8)
+#define PIN_I2C_SDA        21
+#define PIN_I2C_SCL        22
 
 // --- Constants ---
 #define SCREEN_WIDTH      128
@@ -42,8 +43,11 @@ int currentNoctuaPWM  = 0;
 bool currentBlowerOn  = false;
 bool currentHeaterOn  = false;
 
-// System & Telemetry State
+// Arbitration: "Last Action Wins" State
 Mode currentMode = MODE_OFF;
+Mode lastPhysicalSwitch = MODE_OFF;
+bool u1OverrideActive = false;
+float lastU1Speed = 0.0f;
 bool telemetryWatchdogOk = false; // Latch: True once valid telemetry received, false if watchdog expires
 bool telemetryLost = false;       // True when the most recent poll failed (grace period in progress)
 float chamberTemp = 0.0;
@@ -72,6 +76,7 @@ void setup() {
   digitalWrite(PIN_HEATER_RELAY, HIGH); 
   pinMode(PIN_BLOWER, OUTPUT);
   pinMode(PIN_NOCTUA_PWM, OUTPUT);
+  pinMode(PIN_U1_PURGE_SENSE, INPUT);
   digitalWrite(PIN_BLOWER, LOW);
   analogWrite(PIN_NOCTUA_PWM, 0);
 
@@ -133,8 +138,24 @@ void loop() {
   // ========================================================
   // 2. NORMAL RUNNING LOOP (WI-FI CONNECTED)
   // ========================================================
-  // Read Physical 5-Way Rotary Switch
-  currentMode = readSwitchMode();
+  // --- ARBITRATION: Last Action Wins ---
+  Mode rawSwitch = readSwitchMode();
+
+  // Event 1: Did the user physically turn the knob?
+  if (rawSwitch != lastPhysicalSwitch) {
+    lastPhysicalSwitch = rawSwitch;
+    u1OverrideActive = false; // Physical knob immediately reclaims control!
+    currentMode = rawSwitch;
+  }
+
+  // Event 2: Did U1 hardware or Moonraker send a purge/vent command?
+  if (u1IsPurging) {
+    u1OverrideActive = true; // U1 touchscreen/macro takes control!
+  } else if (u1OverrideActive && !u1IsPurging) {
+    // U1 finished venting -> revert back to physical knob setting
+    u1OverrideActive = false;
+    currentMode = lastPhysicalSwitch;
+  }
 
   // Poll Moonraker API every 2 seconds (or immediately on first loop pass)
   if (lastPollTime == 0 || now - lastPollTime >= POLL_INTERVAL_MS) {
@@ -265,7 +286,7 @@ bool isFiniteNumber(JsonVariantConst value) {
 void pollMoonraker() {
   HTTPClient http;
   String url = "http://" + String(U1_IP_ADDRESS) + 
-               "/printer/objects/query?print_stats&virtual_sdcard&temperature_sensor%20cavity&purifier&heater_bed&extruder&toolhead";
+               "/printer/objects/query?print_stats&virtual_sdcard&temperature_sensor%20cavity&purifier&heater_bed&extruder&extruder1&toolhead";
   http.begin(url);
   http.setTimeout(1500);
 
@@ -278,7 +299,6 @@ void pollMoonraker() {
     if (!error) {
       JsonObject status = doc["result"]["status"];
       JsonObject cavity = status["temperature_sensor cavity"];
-      JsonObject extruder = status["extruder"];
       JsonObject bed = status["heater_bed"];
       JsonObject toolhead = status["toolhead"];
       JsonArray position = toolhead["position"];
@@ -286,31 +306,34 @@ void pollMoonraker() {
       JsonObject printStats = status["print_stats"];
       JsonObject purifier = status["purifier"];
 
+      const char* extruderName = toolhead["extruder"];
+      String activeExtName = (extruderName != nullptr) ? String(extruderName) : "extruder";
+
+      // Dynamically select the ACTIVE extruder based on toolhead (T0 vs T1)
+      JsonObject activeExtruder = (status.containsKey(activeExtName) && !status[activeExtName]["temperature"].isNull())
+                                  ? status[activeExtName]
+                                  : status["extruder"];
+
       JsonVariant cavityValue = cavity["temperature"];
-      JsonVariant nozzleValue = extruder["temperature"];
+      JsonVariant nozzleValue = activeExtruder["temperature"];
       JsonVariant bedValue = bed["temperature"];
       JsonVariant zValue = position[2];
       JsonVariant progressValue = virtualSdcard["progress"];
       JsonVariant durationValue = printStats["print_duration"];
-      JsonVariant speedValue = purifier["speed"];
-      JsonVariant enabledValue = purifier["is_enabled"];
       const char* stateValue = printStats["state"];
-      const char* extruderName = toolhead["extruder"];
 
-      if (status && cavity && extruder && bed && toolhead && position &&
-          virtualSdcard && printStats && purifier &&
+      if (status && cavity && activeExtruder && bed && toolhead && position &&
+          virtualSdcard && printStats &&
           isFiniteNumber(cavityValue) && isFiniteNumber(nozzleValue) &&
           isFiniteNumber(bedValue) && isFiniteNumber(zValue) &&
           isFiniteNumber(progressValue) && isFiniteNumber(durationValue) &&
-          isFiniteNumber(speedValue) && enabledValue.is<bool>() &&
-          stateValue != nullptr && extruderName != nullptr) {
+          stateValue != nullptr) {
         float parsedCavity = cavityValue.as<float>();
         float parsedNozzle = nozzleValue.as<float>();
         float parsedBed = bedValue.as<float>();
         float parsedZ = zValue.as<float>();
         float parsedProgress = progressValue.as<float>();
         float parsedDuration = durationValue.as<float>();
-        float parsedSpeed = speedValue.as<float>();
 
         // Reject values outside the physical/API ranges before refreshing the watchdog.
         if (parsedCavity >= 1.0f && parsedCavity <= 85.0f &&
@@ -318,28 +341,44 @@ void pollMoonraker() {
             parsedBed >= 0.0f && parsedBed <= 150.0f &&
             parsedZ >= -10.0f && parsedZ <= 500.0f &&
             parsedProgress >= 0.0f && parsedProgress <= 1.0f &&
-            parsedDuration >= 0.0f && parsedDuration <= 4294967295.0f &&
-            parsedSpeed >= 0.0f && parsedSpeed <= 100.0f) {
-          chamberTemp       = parsedCavity;
-          nozzleTemp        = parsedNozzle;
-          bedTemp           = parsedBed;
-          toolheadZ         = parsedZ;
+            parsedDuration >= 0.0f && parsedDuration <= 4294967295.0f) {
+          chamberTemp = parsedCavity;
+          nozzleTemp  = parsedNozzle; // Live temperature of the active nozzle!
+          bedTemp     = parsedBed;
+          toolheadZ   = parsedZ;
 
           // Toolhead identification
-          String extStr = extruderName;
-          if (extStr == "extruder1")      activeTool = "T1";
-          else if (extStr == "extruder2") activeTool = "T2";
-          else if (extStr == "extruder3") activeTool = "T3";
-          else                            activeTool = "T0";
+          if (activeExtName == "extruder1") {
+            activeTool = "T1";
+          } else if (activeExtName == "extruder2") {
+            activeTool = "T2";
+          } else if (activeExtName == "extruder3") {
+            activeTool = "T3";
+          } else {
+            activeTool = "T0";
+          }
 
-          printProgress     = parsedProgress;
-          printState        = stateValue;
-          printDuration     = (unsigned long)parsedDuration;
+          printProgress = parsedProgress;
+          printState    = stateValue;
+          printDuration = (unsigned long)parsedDuration;
 
-          // Normalize purifier speed to 0.0-1.0 while accepting either API scale.
-          u1PurifierSpeed = parsedSpeed > 1.0f ? parsedSpeed / 100.0f : parsedSpeed;
-          u1PurifierEnabled = enabledValue.as<bool>();
-          u1IsPurging = u1PurifierEnabled || u1PurifierSpeed > 0.05f;
+          // Parse Real Snapmaker U1 Dual-Fan Purifier structure:
+          float exhaustSpeed = 0.0f;
+          float innerSpeed   = 0.0f;
+          if (purifier && purifier.containsKey("exhaust_fan")) {
+            exhaustSpeed = purifier["exhaust_fan"]["speed"] | 0.0f;
+          }
+          if (purifier && purifier.containsKey("inner_fan")) {
+            innerSpeed = purifier["inner_fan"]["speed"] | 0.0f;
+          }
+          int purifierMode = purifier ? (purifier["mode"] | 0) : 0;
+
+          u1PurifierSpeed = max(exhaustSpeed, innerSpeed);
+          if (u1PurifierSpeed > 1.0f) u1PurifierSpeed /= 100.0f; // normalize 0-100 scale
+
+          // Detect purge via API or Hardware Pin 5 (PA8)
+          bool hwPurgeActive = (digitalRead(PIN_U1_PURGE_SENSE) == HIGH); // or PWM active
+          u1IsPurging = (exhaustSpeed > 0.05f) || (innerSpeed > 0.05f) || (purifierMode > 0) || hwPurgeActive;
 
           // Success: Refresh watchdog and mark telemetry watchdog OK
           lastValidPollTime   = millis();
@@ -366,17 +405,16 @@ void executeChamberLogic(unsigned long now) {
     return;
   }
 
-  // 1. AUTONOMOUS PURGE SENSING & THERMAL SHOCK COOLDOWN GATE:
-  // Manual knob PURGE triggers immediate evacuation outdoors
-  if (currentMode == MODE_PURGE) {
-    applyActuators(90, 255, false, false);
-    return;
-  }
-
-  // Autonomous purge triggered by printer end-of-print sequence:
-  if (u1IsPurging) {
-    // Bed must cool to <= 60C before opening exhaust to prevent warping/thermal shock!
+  // 1. U1 OVERRIDE (Touchscreen / G-code / Purge) & COOLDOWN GATE:
+  if (u1OverrideActive || currentMode == MODE_PURGE) {
+    // Bed must cool to <= 60C before opening exhaust outdoors to prevent warping!
     bool bedSafeToPurge = (bedTemp <= 60.0f);
+
+    // If manual knob is explicitly set to PURGE, override cooldown immediately
+    if (currentMode == MODE_PURGE) {
+      applyActuators(90, 255, false, false);
+      return;
+    }
 
     if (bedSafeToPurge) {
       // Phase 2: Bed is cool. Open valve (90 deg), blast exhaust 100% outdoors, blower & heater OFF

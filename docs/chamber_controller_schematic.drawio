@@ -1,14 +1,14 @@
 <mxfile host="Electron">
   <diagram id="chamber-controller" name="Chamber Controller Schematic">
-    <mxGraphModel dx="1774" dy="1429" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1200" math="0" shadow="0">
+<mxGraphModel dx="2454" dy="1700" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1200" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
         <mxCell id="node_2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 8;strokeColor=#e53e3e;strokeWidth=2;fillColor=#fff5f5;verticalAlign=top;align=left;spacingLeft=15;spacingTop=10;fontSize=12;fontStyle=1;fontColor=#c53030;" value="⚠️ 110V AC MAINS HIGH-VOLTAGE ISOLATED ZONE&#xa;(Physically separated from all low-voltage lines)" vertex="1">
           <mxGeometry height="580" width="720" x="1060" y="550" as="geometry" />
         </mxCell>
-        <mxCell id="node_3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#dd6b20;strokeWidth=2;fontStyle=1;fontSize=12;align=left;spacingLeft=15;" value="24V DC POWER IN&#xa;(Main Supply from U1)&#xa;&#xa;• Pin 1: +24V DC&#xa;• Pin 2: Power GND" vertex="1">
-          <mxGeometry height="100" width="200" x="60" y="100" as="geometry" />
+        <mxCell id="node_3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#dd6b20;strokeWidth=2;fontStyle=1;fontSize=11;align=left;spacingLeft=12;" value="SNAPMAKER U1 TOP PORT&#xa;(Molex Micro-Fit 3.0 2×3)&#xa;&#xa;• Pin 6: Fused +24V DC Out&#xa;• Pin 2: Ground (GND)&#xa;• Pin 4: FLAG2 (10k to GND)&#xa;• Pin 5: PWM (PA8 Exhaust)&#xa;• Pin 1: PA9 (Inner Fan)" vertex="1">
+          <mxGeometry height="130" width="220" x="50" y="85" as="geometry" />
         </mxCell>
         <mxCell id="node_4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#dd6b20;strokeWidth=2;fontStyle=1;fontSize=12;align=left;spacingLeft=15;" value="MP1584 BUCK CONVERTER&#xa;24V In ➔ 5.00V DC Out&#xa;&#xa;• IN+  |  IN- (GND)&#xa;• OUT+ (5V)  |  OUT- (GND)" vertex="1">
           <mxGeometry height="100" width="220" x="340" y="100" as="geometry" />
@@ -16,7 +16,10 @@
         <mxCell id="node_5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#718096;strokeWidth=2;fontStyle=1;fontSize=11;" value="COMMON GROUND BUS (GND)&#xa;[ Star-ground distribution ]" vertex="1">
           <mxGeometry height="40" width="220" x="340" y="240" as="geometry" />
         </mxCell>
-        <mxCell id="node_6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;strokeWidth=3;fontStyle=1;fontSize=12;align=center;" value="ESP-WROOM-32 (30-PIN)&lt;br&gt;On Terminal Shield&lt;br&gt;&lt;br&gt;[ LEFT TERMINALS ]&lt;br&gt;• VIN (5.0V Power In)&lt;br&gt;• GND (System Ground)&lt;br&gt;• 3V3 (3.3V Out)&lt;br&gt;• GPIO 21 (I2C SDA)&lt;br&gt;• GPIO 22 (I2C SCL)&lt;br&gt;• GPIO 34 (ADC: 5-Way Switch)&lt;br&gt;&lt;br&gt;[ RIGHT TERMINALS ]&lt;br&gt;• GPIO 18 (PWM: Flap Servo)&lt;br&gt;• GPIO 19 (PWM: Noctua 24V)&lt;br&gt;• GPIO 23 (Out: Blower MOSFET)&lt;br&gt;• GPIO 25 (Out: 110V Heater Relay)&lt;br&gt;&lt;br&gt;[ WiFi: Moonraker REST API ]" vertex="1">
+<mxCell id="WMdCMO2jiq75RD34SFOT-3" edge="1" parent="1" source="node_6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;defaultLabelBackgroundColor=page;strokeWidth=3;strokeColor=#007FFF;" target="WMdCMO2jiq75RD34SFOT-1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="node_6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;strokeWidth=3;fontStyle=1;fontSize=12;align=center;" value="ESP-WROOM-32 (30-PIN)&lt;br&gt;On Terminal Shield&lt;br&gt;&lt;br&gt;[ LEFT TERMINALS ]&lt;br&gt;• VIN (5.0V Power In)&lt;br&gt;• GND (System Ground)&lt;br&gt;• 3V3 (3.3V Out)&lt;br&gt;• GPIO 21 (I2C SDA)&lt;br&gt;• GPIO 22 (I2C SCL)&lt;br&gt;• GPIO 34 (ADC: 5-Way Switch)&lt;br&gt;• GPIO 35 (In: U1 Purge Sense)&lt;br&gt;&lt;br&gt;[ RIGHT TERMINALS ]&lt;br&gt;• GPIO 18 (PWM: Flap Servo)&lt;br&gt;• GPIO 19 (PWM: Noctua 24V)&lt;br&gt;• GPIO 23 (Out: Blower MOSFET)&lt;br&gt;• GPIO 25 (Out: 110V Heater Relay)&lt;br&gt;&lt;br&gt;[ WiFi: Moonraker REST API ]" vertex="1">
           <mxGeometry height="440" width="320" x="640" y="280" as="geometry" />
         </mxCell>
         <mxCell id="node_7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#805ad5;strokeWidth=2;fontStyle=1;fontSize=12;align=left;spacingLeft=15;" value="SSD1306 0.96&quot; OLED&#xa;(I2C: 0x3C • Yellow / Blue)&#xa;&#xa;• Pin 1: GND&#xa;• Pin 2: VCC (3.3V)&#xa;• Pin 3: SCL (GPIO 22)&#xa;• Pin 4: SDA (GPIO 21)" vertex="1">
@@ -55,26 +58,29 @@
         <mxCell id="node_18" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#d69e2e;strokeWidth=2;fontStyle=1;fontSize=12;align=center;" value="NEON PILOT LIGHT&#xa;(Wired in parallel across PTC)" vertex="1">
           <mxGeometry height="60" width="220" x="1500" y="770" as="geometry" />
         </mxCell>
-        <mxCell id="edge_19" edge="1" parent="1" source="node_3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FF33FF;strokeWidth=2;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;fontSize=10;fontColor=#e53e3e;fontStyle=1;" target="node_4" value="+24V">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="edge_19" edge="1" parent="1" source="node_3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FF33FF;strokeWidth=2;entryX=0.013;entryY=0.73;entryDx=0;entryDy=0;fontSize=10;fontColor=#CC00CC;fontStyle=1;exitX=1.002;exitY=0.671;exitDx=0;exitDy=0;exitPerimeter=0;entryPerimeter=0;" target="node_4" value="+24V">
+          <mxGeometry relative="1" x="0.3756" y="1" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="270" y="130" as="sourcePoint" />
+          </mxGeometry>
         </mxCell>
-        <mxCell id="edge_20" edge="1" parent="1" source="node_3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FF33FF;strokeWidth=2;exitX=0.998;exitY=0.316;exitDx=0;exitDy=0;entryX=0.003;entryY=0.157;entryDx=0;entryDy=0;fontSize=10;fontColor=#e53e3e;fontStyle=1;entryPerimeter=0;exitPerimeter=0;" target="node_10" value="+24V">
-          <mxGeometry relative="1" x="-0.0056" as="geometry">
+        <mxCell id="edge_20" edge="1" parent="1" source="node_3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FF33FF;strokeWidth=2;exitX=1.003;exitY=0.199;exitDx=0;exitDy=0;entryX=0.003;entryY=0.157;entryDx=0;entryDy=0;fontSize=10;fontColor=#e53e3e;fontStyle=1;entryPerimeter=0;exitPerimeter=0;" target="node_10" value="+24V">
+          <mxGeometry relative="1" x="-0.0313" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="290" y="131.6" />
-              <mxPoint x="290" y="80" />
-              <mxPoint x="1020" y="80" />
+              <mxPoint x="290" y="110.9" />
+              <mxPoint x="290" y="60" />
+              <mxPoint x="1020" y="60" />
               <mxPoint x="1020" y="217.3" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="edge_21" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FF33FF;strokeWidth=2;entryX=0;entryY=0.25;entryDx=0;entryDy=0;fontSize=10;fontColor=#e53e3e;fontStyle=1;" target="node_11" value="+24V (DC+)">
-          <mxGeometry relative="1" x="-0.0645" as="geometry">
+        <mxCell id="edge_21" edge="1" parent="1" source="node_3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FF33FF;strokeWidth=2;entryX=0;entryY=0.25;entryDx=0;entryDy=0;fontSize=10;fontColor=#e53e3e;fontStyle=1;exitX=1.001;exitY=0.203;exitDx=0;exitDy=0;exitPerimeter=0;" target="node_11" value="+24V (DC+)">
+          <mxGeometry relative="1" x="-0.0816" as="geometry">
             <Array as="points">
-              <mxPoint x="290" y="130" />
-              <mxPoint x="290" y="80" />
-              <mxPoint x="1020" y="80" />
+              <mxPoint x="290" y="111.4" />
+              <mxPoint x="290" y="60" />
+              <mxPoint x="1020" y="60" />
               <mxPoint x="1020" y="380" />
             </Array>
             <mxPoint x="270" y="130" as="sourcePoint" />
@@ -85,7 +91,7 @@
             <mxPoint as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="edge_24" edge="1" parent="1" source="node_3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.7;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" target="node_4" value="GND In">
+        <mxCell id="edge_24" edge="1" parent="1" source="node_3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" target="node_4" value="GND In">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="edge_25" edge="1" parent="1" source="node_4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4a5568;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#4a5568;fontStyle=1;" target="node_5" value="GND (OUT-)">
@@ -160,8 +166,8 @@
             <mxPoint x="370" y="530" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="edge_33" edge="1" parent="1" source="node_4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#dd6b20;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.42;entryY=-0.007;entryDx=0;entryDy=0;fontSize=10;fontColor=#dd6b20;fontStyle=1;entryPerimeter=0;" target="node_6" value="+5.0V (VIN)">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="edge_33" edge="1" parent="1" source="node_4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#dd6b20;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#dd6b20;fontStyle=1;" target="node_6" value="+5.0V (VIN)">
+          <mxGeometry relative="1" x="-0.1231" as="geometry" />
         </mxCell>
         <mxCell id="edge_34" edge="1" parent="1" source="n9jAuuvvDKQ9iI4_x3iX-28" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#dd6b20;strokeWidth=2;entryX=0;entryY=0.25;entryDx=0;entryDy=0;fontSize=10;fontColor=#dd6b20;fontStyle=1;exitX=1.006;exitY=0.195;exitDx=0;exitDy=0;exitPerimeter=0;" target="node_9" value="+5.0V (Red)">
           <mxGeometry relative="1" x="-0.4679" y="-1" as="geometry">
@@ -385,11 +391,11 @@
             <mxPoint x="1880" y="1102" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="n9jAuuvvDKQ9iI4_x3iX-12" edge="1" parent="1" source="node_4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#dd6b20;strokeWidth=2;exitX=1;exitY=0.75;exitDx=0;exitDy=0;fontSize=10;fontColor=#dd6b20;fontStyle=1;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" target="n9jAuuvvDKQ9iI4_x3iX-5" value="DC+">
-          <mxGeometry relative="1" x="0.9529" as="geometry">
+        <mxCell id="n9jAuuvvDKQ9iI4_x3iX-12" edge="1" parent="1" source="node_4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#dd6b20;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;fontSize=10;fontColor=#dd6b20;fontStyle=1;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" target="n9jAuuvvDKQ9iI4_x3iX-5" value="DC+">
+          <mxGeometry relative="1" x="0.9538" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="580" y="175" />
+              <mxPoint x="580" y="150" />
               <mxPoint x="580" y="850" />
             </Array>
             <mxPoint x="610" y="140" as="sourcePoint" />
@@ -415,18 +421,18 @@
           <mxGeometry height="100" width="220" x="1190" y="50" as="geometry" />
         </mxCell>
         <mxCell id="n9jAuuvvDKQ9iI4_x3iX-29" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FF33FF;strokeWidth=2;entryX=-0.002;entryY=0.348;entryDx=0;entryDy=0;fontSize=10;fontColor=#e53e3e;fontStyle=1;entryPerimeter=0;" target="n9jAuuvvDKQ9iI4_x3iX-28" value="">
-          <mxGeometry relative="1" x="0.1022" as="geometry">
+          <mxGeometry relative="1" x="0.1558" as="geometry">
             <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="1020" y="80" />
+              <mxPoint x="1020" y="60" />
               <mxPoint x="1020" y="84.8" />
             </Array>
-            <mxPoint x="870" y="80" as="sourcePoint" />
+            <mxPoint x="870" y="60" as="sourcePoint" />
             <mxPoint x="1651" y="-83" as="targetPoint" />
           </mxGeometry>
         </mxCell>
         <mxCell id="n9jAuuvvDKQ9iI4_x3iX-30" connectable="0" parent="n9jAuuvvDKQ9iI4_x3iX-29" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];inheritText=1;fontSize=10;fontColor=#e53e3e;fontStyle=1;" value="IN+" vertex="1">
-          <mxGeometry relative="1" x="0.8119" y="1" as="geometry">
+          <mxGeometry relative="1" x="0.8237" y="1" as="geometry">
             <mxPoint as="offset" />
           </mxGeometry>
         </mxCell>
@@ -448,6 +454,17 @@
         </mxCell>
         <mxCell id="n9jAuuvvDKQ9iI4_x3iX-36" parent="1" style="ellipse;whiteSpace=wrap;html=1;shapeInside=1;fillColor=none;dashed=1;dashPattern=8 8;" value="" vertex="1">
           <mxGeometry height="300" width="20" x="530" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_u1_purge" edge="1" parent="1" source="node_3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#00cc66;strokeWidth=2;dashed=1;fontSize=10;fontColor=#009933;fontStyle=1;exitX=1;exitY=0.373;exitDx=0;exitDy=0;exitPerimeter=0;" target="node_6" value="U1 Purge PWM (PA8) ➔ GPIO 35">
+          <mxGeometry relative="1" x="-0.0989" as="geometry">
+            <Array as="points">
+              <mxPoint x="310" y="133.5" />
+              <mxPoint x="310" y="80" />
+              <mxPoint x="800" y="80" />
+            </Array>
+            <mxPoint x="160" y="220" as="sourcePoint" />
+            <mxPoint x="640" y="420" as="targetPoint" />
+          </mxGeometry>
         </mxCell>
       </root>
     </mxGraphModel>
