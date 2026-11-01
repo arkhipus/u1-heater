@@ -27,7 +27,17 @@ class MockMoonraker(http.server.BaseHTTPRequestHandler):
                         "state": "printing",
                         "print_duration": 91210
                     },
-                    "purifier": {"speed": 0.0, "is_enabled": False}
+                    "purifier": {
+                        "power_detected": True,
+                        "power_det_value": 0.0,
+                        "mode": 3,
+                        "desired_chamber_temp": 50,
+                        "critical_chamber_temp": 65,
+                        "inner_fan_work_time": 120.0,
+                        "inner_fan_rpm": 2400.0,
+                        "exhaust_fan": {"speed": 0.0, "delay": 180, "speed_threshold": 0},
+                        "inner_fan": {"speed": 0.6, "delay": 180, "speed_threshold": 0}
+                    }
                 }
             }
         }

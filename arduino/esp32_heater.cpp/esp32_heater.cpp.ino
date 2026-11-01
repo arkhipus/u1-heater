@@ -46,8 +46,10 @@ bool currentHeaterOn  = false;
 // Arbitration: "Last Action Wins" State
 Mode currentMode = MODE_OFF;
 Mode lastPhysicalSwitch = MODE_OFF;
+Mode u1RemoteMode = MODE_OFF;
+Mode lastDetectedRemote = MODE_OFF;
 bool u1OverrideActive = false;
-float lastU1Speed = 0.0f;
+float targetChamberTemp = 50.0f;  // Dynamic setpoint for MODE_HI (defaults to 50C)
 bool telemetryWatchdogOk = false; // Latch: True once valid telemetry received, false if watchdog expires
 bool telemetryLost = false;       // True when the most recent poll failed (grace period in progress)
 float chamberTemp = 0.0;
@@ -60,7 +62,6 @@ unsigned long printDuration = 0;
 String printState = "offline";
 float u1PurifierSpeed = 0.0;
 bool u1PurifierEnabled = false;
-bool u1IsPurging = false;
 
 // Timers
 unsigned long lastPollTime = 0;
@@ -141,20 +142,14 @@ void loop() {
   // --- ARBITRATION: Last Action Wins ---
   Mode rawSwitch = readSwitchMode();
 
-  // Event 1: Did the user physically turn the knob?
+  // If the user physically turned the knob, physical knob reclaims master control!
   if (rawSwitch != lastPhysicalSwitch) {
     lastPhysicalSwitch = rawSwitch;
-    u1OverrideActive = false; // Physical knob immediately reclaims control!
-    currentMode = rawSwitch;
-  }
-
-  // Event 2: Did U1 hardware or Moonraker send a purge/vent command?
-  if (u1IsPurging) {
-    u1OverrideActive = true; // U1 touchscreen/macro takes control!
-  } else if (u1OverrideActive && !u1IsPurging) {
-    // U1 finished venting -> revert back to physical knob setting
-    u1OverrideActive = false;
-    currentMode = lastPhysicalSwitch;
+    u1OverrideActive   = false;
+    currentMode        = rawSwitch;
+    if (rawSwitch == MODE_HI) {
+      targetChamberTemp = 50.0f; // Manual HI mode defaults strictly to 50C
+    }
   }
 
   // Poll Moonraker API every 2 seconds (or immediately on first loop pass)
@@ -283,7 +278,52 @@ bool isFiniteNumber(JsonVariantConst value) {
   return isfinite(value.as<float>());
 }
 
+// Helper to map SnOrca / Klipper Purifier commands directly to our existing Mode enum
+Mode decodeU1Mode(JsonObject purifier, bool hwPurgeActive) {
+  if (!purifier) return MODE_OFF;
+
+  float exhaustSpeed = 0.0f;
+  if (purifier.containsKey("exhaust_fan")) {
+    exhaustSpeed = purifier["exhaust_fan"]["speed"] | 0.0f;
+  }
+  int mode = purifier["mode"] | 0;
+  float desiredTemp = purifier["desired_chamber_temp"] | 0.0f;
+
+  // 1. Explicit Exhaust Dump / End-of-Print Purge
+  if (exhaustSpeed > 0.8f || hwPurgeActive) {
+    return MODE_PURGE;
+  }
+
+  // 2. Direct 1-to-1 Mapping of Klipper Purifier Modes to our 5 Profiles
+  switch (mode) {
+    case 1:
+      // Klipper COOL CHAMBER (SnOrca PLA strong cool) -> MODE_LOW
+      return MODE_LOW;
+
+    case 2:
+      // Klipper PREHEAT CHAMBER (SnOrca ASA/PC heat soak) -> MODE_HI
+      if (desiredTemp >= 40.0f) targetChamberTemp = desiredTemp;
+      return MODE_HI;
+
+    case 3:
+      // Klipper HOT CHAMBER or WEAK COOL
+      if (desiredTemp >= 40.0f) {
+        // SnOrca ASA/PC Heat Retention -> MODE_HI
+        targetChamberTemp = desiredTemp;
+        return MODE_HI;
+      } else {
+        // SnOrca PETG Weak Cool / Gentle Draft -> MODE_MED
+        return MODE_MED;
+      }
+
+    default:
+      if (exhaustSpeed > 0.05f) return MODE_PURGE;
+      return MODE_OFF;
+  }
+}
+
 void pollMoonraker() {
+
   HTTPClient http;
   String url = "http://" + String(U1_IP_ADDRESS) + 
                "/printer/objects/query?print_stats&virtual_sdcard&temperature_sensor%20cavity&purifier&heater_bed&extruder&extruder1&toolhead";
@@ -371,14 +411,29 @@ void pollMoonraker() {
           if (purifier && purifier.containsKey("inner_fan")) {
             innerSpeed = purifier["inner_fan"]["speed"] | 0.0f;
           }
-          int purifierMode = purifier ? (purifier["mode"] | 0) : 0;
 
           u1PurifierSpeed = max(exhaustSpeed, innerSpeed);
           if (u1PurifierSpeed > 1.0f) u1PurifierSpeed /= 100.0f; // normalize 0-100 scale
 
-          // Detect purge via API or Hardware Pin 5 (PA8)
-          bool hwPurgeActive = (digitalRead(PIN_U1_PURGE_SENSE) == HIGH); // or PWM active
-          u1IsPurging = (exhaustSpeed > 0.05f) || (innerSpeed > 0.05f) || (purifierMode > 0) || hwPurgeActive;
+          // Detect hardware purge signal on Pin 5 (PA8)
+          bool hwPurgeActive = (digitalRead(PIN_U1_PURGE_SENSE) == HIGH);
+
+          // Decode SnOrca / Klipper command directly into our Mode enum
+          Mode detectedRemote = decodeU1Mode(purifier, hwPurgeActive);
+
+          // ARBITRATION: Did U1 command a new active state?
+          if (detectedRemote != lastDetectedRemote) {
+            lastDetectedRemote = detectedRemote;
+            if (detectedRemote != MODE_OFF) {
+              u1RemoteMode     = detectedRemote;
+              u1OverrideActive = true;
+              currentMode      = detectedRemote;
+            } else if (u1OverrideActive) {
+              // U1 went idle/off -> revert back to physical knob position
+              u1OverrideActive = false;
+              currentMode      = lastPhysicalSwitch;
+            }
+          }
 
           // Success: Refresh watchdog and mark telemetry watchdog OK
           lastValidPollTime   = millis();
@@ -405,17 +460,16 @@ void executeChamberLogic(unsigned long now) {
     return;
   }
 
-  // 1. U1 OVERRIDE (Touchscreen / G-code / Purge) & COOLDOWN GATE:
-  if (u1OverrideActive || currentMode == MODE_PURGE) {
-    // Bed must cool to <= 60C before opening exhaust outdoors to prevent warping!
-    bool bedSafeToPurge = (bedTemp <= 60.0f);
-
-    // If manual knob is explicitly set to PURGE, override cooldown immediately
-    if (currentMode == MODE_PURGE) {
+  // 1. PURGE WITH THERMAL COOLDOWN GATE:
+  if (currentMode == MODE_PURGE) {
+    // If the physical knob was manually twisted to PURGE, evacuate immediately (bypass cooldown)
+    if (!u1OverrideActive) {
       applyActuators(90, 255, false, false);
       return;
     }
 
+    // Remote U1 / End-of-print purge: enforce bed cooldown gate (<= 60C) to prevent warping!
+    bool bedSafeToPurge = (bedTemp <= 60.0f);
     if (bedSafeToPurge) {
       // Phase 2: Bed is cool. Open valve (90 deg), blast exhaust 100% outdoors, blower & heater OFF
       applyActuators(90, 255, false, false);
@@ -426,7 +480,7 @@ void executeChamberLogic(unsigned long now) {
     return;
   }
 
-  // 2. Normal Mode State Machine
+  // 2. Normal Mode State Machine (Shared by Physical Knob and U1 Remote Control)
   switch (currentMode) {
     case MODE_OFF:
       applyActuators(0, 0, false, false);
@@ -443,20 +497,20 @@ void executeChamberLogic(unsigned long now) {
     case MODE_HI: { // ASA/PC: Sealed chamber, 100% recirculation, active heat
       bool shouldHeat = currentHeaterOn; // Default: retain previous state (hysteresis)
 
-      // TELEMETRY GRACE PERIOD (Cleanup Step 3):
+      // TELEMETRY GRACE PERIOD:
       // If telemetry dropped (stale for > 3.5s) but within the 60s watchdog window,
       // freeze last commanded heater state rather than evaluating hysteresis on frozen sensor values!
       bool telemetryStale = (now - lastValidPollTime > POLL_INTERVAL_MS + 1500UL);
 
       if (!telemetryStale) {
-        // SOFTWARE OVER-TEMPERATURE CUTOFF: Hard limit at 60C
+        // SOFTWARE OVER-TEMPERATURE CUTOFF: Hard safety limit at 60C
         if (chamberTemp >= 60.0f) {
           shouldHeat = false;
         }
-        // PERSISTENT HYSTERESIS: Target 50C (ON below 49.0C, OFF at or above 50.0C)
-        else if (chamberTemp < 49.0f) {
+        // PERSISTENT HYSTERESIS around targetChamberTemp (defaults to 50C)
+        else if (chamberTemp < (targetChamberTemp - 1.0f)) {
           shouldHeat = true;
-        } else if (chamberTemp >= 50.0f) {
+        } else if (chamberTemp >= targetChamberTemp) {
           shouldHeat = false;
         }
       }
@@ -524,11 +578,20 @@ void updateDisplay() {
   // ========================================================
   display.setTextSize(1);
   display.setCursor(0, 2);
-  if (u1IsPurging) {
-    if (bedTemp <= 60.0f) {
-      display.print("PURGE [AUTO]");
+  if (u1OverrideActive) {
+    if (currentMode == MODE_PURGE) {
+      if (bedTemp <= 60.0f) {
+        display.print("PURGE [AUTO]");
+      } else {
+        display.print("COOLDOWN");
+      }
     } else {
-      display.print("COOLDOWN");
+      switch (currentMode) {
+        case MODE_LOW:   display.print("AUTO [PLA]");  break;
+        case MODE_MED:   display.print("AUTO [PETG]"); break;
+        case MODE_HI:    display.print("AUTO [ASA]");  break;
+        default:         display.print("AUTO [U1]");   break;
+      }
     }
   } else {
     switch (currentMode) {
