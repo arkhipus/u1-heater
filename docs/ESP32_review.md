@@ -68,7 +68,7 @@ A response missing the cavity sensor can therefore look like a fresh valid packe
 The design says purge overrides any knob position, but this condition blocks automatic purge while the knob is OFF:
 
 ```cpp
-if ((u1IsPurging || currentMode == MODE_PURGE) && currentMode != MODE_OFF)
+if (u1OverrideActive && currentMode == MODE_PURGE)
 ```
 
 Automatic purge should be handled first and independently of the rotary mode. The code also ignores `purifier.is_enabled`, even though the design says to use it.

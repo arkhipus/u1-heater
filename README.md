@@ -69,7 +69,7 @@ Selected via the 5-position rotary knob on the front panel:
 | **PURGE**| 90° (Open) | 100% (255 PWM)| OFF | OFF | Manual evacuation |
 
 ### Autonomous Purge Override
-When a print finishes, the Snapmaker U1 activates its internal purifier fan. The ESP32 detects this via Moonraker telemetry (`purifier.speed > 0` or `purifier.is_enabled`), overrides the current manual knob position (including `OFF`), opens the valve to 90°, and exhausts 100% outdoors while displaying an alert banner on the OLED.
+When a print finishes, the Snapmaker U1 purifier reports its dual-fan state through Moonraker (`purifier.exhaust_fan.speed`, `purifier.inner_fan.speed`, and `purifier.mode`). The ESP32 maps the U1 purifier command to a local operating mode, overrides the current manual knob position, and opens the valve for a remote exhaust purge after the bed cooldown gate is satisfied.
 
 ---
 

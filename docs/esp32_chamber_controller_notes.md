@@ -232,8 +232,23 @@ GET http://<U1-IP-Address>/printer/objects/query?print_stats&virtual_sdcard&temp
         "print_duration": 6120
       },
       "purifier": {
-        "speed": 0.0,
-        "is_enabled": false
+        "power_detected": false,
+        "power_det_value": 3.3,
+        "mode": 0,
+        "desired_chamber_temp": 0,
+        "critical_chamber_temp": 0,
+        "inner_fan_work_time": 0.0,
+        "inner_fan_rpm": 0.0,
+        "exhaust_fan": {
+          "speed": 0.0,
+          "delay": 180,
+          "speed_threshold": 0
+        },
+        "inner_fan": {
+          "speed": 0.0,
+          "delay": 180,
+          "speed_threshold": 0
+        }
       }
     }
   }
@@ -257,6 +272,7 @@ The U1 firmware maps incoming Klipper Purifier telemetry directly into our 5-pos
 1. **Physical Knob Priority:** Any physical rotation of the 5-way rotary switch triggers an edge detection interrupt that immediately overrides remote U1 commands and reclaims master control.
 2. **Remote U1 Automation:** If the physical knob remains untouched, the ESP32 follows SnOrca's G-code commands (`SET_PURIFIER_MODE`) or touchscreen inputs, showing `AUTO [PLA]`, `AUTO [PETG]`, `AUTO [ASA]`, or `COOLDOWN` / `PURGE [AUTO]` on the OLED top band.
 3. **Thermal Shock Gate:** Under remote purge, the butterfly flap is kept closed (0°) with the scrubber running until `bedTemp <= 60.0 °C` to prevent rapid cooling from warping prints. If the user explicitly twists the physical knob to `MODE_PURGE`, the cooldown gate is bypassed for immediate manual evacuation.
+4. **Purge Ownership:** Purge has no local duration limit. A U1-triggered purge remains active until U1 reports `MODE_OFF`; a switch-triggered purge remains active until the physical switch leaves `MODE_PURGE`.
 
 ## 7. Complete ESP32 Firmware Source Code
 
@@ -287,11 +303,14 @@ The U1 firmware maps incoming Klipper Purifier telemetry directly into our 5-pos
 #define OLED_RESET        -1
 #define OLED_I2C_ADDR     0x3C
 
-const unsigned long PURGE_DURATION_MS = 10UL * 60UL * 1000UL; // 10 minutes
 const unsigned long POLL_INTERVAL_MS  = 2000UL;               // 2 seconds
 const unsigned long COMM_TIMEOUT_MS   = 60000UL;              // 1 minute failsafe cutoff
 const unsigned long RECONNECT_INTV_MS = 10000UL;              // 10s between reconnect attempts
 const unsigned long DISPLAY_INTERVAL_MS = 250UL;
+const unsigned long PURGE_PWM_SAMPLE_TIMEOUT_US = 5000UL;
+const float PURGE_PWM_DUTY_THRESHOLD = 0.8f;
+const float MIN_REMOTE_TARGET_TEMP = 40.0f;
+const float MAX_REMOTE_TARGET_TEMP = 55.0f;
 
 // --- State Enums ---
 enum Mode { MODE_OFF, MODE_LOW, MODE_MED, MODE_HI, MODE_PURGE };
@@ -309,7 +328,6 @@ bool currentHeaterOn  = false;
 // Arbitration: "Last Action Wins" State
 Mode currentMode = MODE_OFF;
 Mode lastPhysicalSwitch = MODE_OFF;
-Mode u1RemoteMode = MODE_OFF;
 Mode lastDetectedRemote = MODE_OFF;
 bool u1OverrideActive = false;
 float targetChamberTemp = 50.0f;  // Dynamic setpoint for MODE_HI (defaults to 50C)
@@ -324,7 +342,6 @@ float printProgress = 0.0;
 unsigned long printDuration = 0;
 String printState = "offline";
 float u1PurifierSpeed = 0.0;
-bool u1PurifierEnabled = false;
 
 // Timers
 unsigned long lastPollTime = 0;
@@ -541,19 +558,45 @@ bool isFiniteNumber(JsonVariantConst value) {
   return isfinite(value.as<float>());
 }
 
+bool readNormalizedFanSpeed(JsonVariantConst speedValue, float& normalizedSpeed) {
+  if (!isFiniteNumber(speedValue)) return false;
+
+  float speed = speedValue.as<float>();
+  if (speed < 0.0f || speed > 100.0f) return false;
+
+  // The U1 currently reports a fractional value, but accepting 0..100 here
+  // keeps this integration tolerant of firmware/API versions using percent.
+  normalizedSpeed = speed > 1.0f ? speed / 100.0f : speed;
+  return true;
+}
+
+bool readU1PurgeSignal() {
+  // GPIO 35 is connected to the U1 PA8 PWM signal. A single digitalRead()
+  // samples an arbitrary point in the PWM cycle and can cause false purges.
+  // This assumes a 3.3 V-compatible, active-high PWM waveform. Verify the
+  // signal voltage and duty-cycle meaning electrically before deployment.
+  unsigned long highTime = pulseIn(
+      PIN_U1_PURGE_SENSE, HIGH, PURGE_PWM_SAMPLE_TIMEOUT_US);
+  unsigned long lowTime = pulseIn(
+      PIN_U1_PURGE_SENSE, LOW, PURGE_PWM_SAMPLE_TIMEOUT_US);
+
+  if (highTime == 0 || lowTime == 0) return false;
+
+  float dutyCycle = (float)highTime / (float)(highTime + lowTime);
+  return dutyCycle >= PURGE_PWM_DUTY_THRESHOLD;
+}
+
 // Helper to map SnOrca / Klipper Purifier commands directly to our existing Mode enum
 Mode decodeU1Mode(JsonObject purifier, bool hwPurgeActive) {
   if (!purifier) return MODE_OFF;
 
   float exhaustSpeed = 0.0f;
-  if (purifier.containsKey("exhaust_fan")) {
-    exhaustSpeed = purifier["exhaust_fan"]["speed"] | 0.0f;
-  }
+  readNormalizedFanSpeed(purifier["exhaust_fan"]["speed"], exhaustSpeed);
   int mode = purifier["mode"] | 0;
   float desiredTemp = purifier["desired_chamber_temp"] | 0.0f;
 
   // 1. Explicit Exhaust Dump / End-of-Print Purge
-  if (exhaustSpeed > 0.8f || hwPurgeActive) {
+  if (exhaustSpeed >= PURGE_PWM_DUTY_THRESHOLD || hwPurgeActive) {
     return MODE_PURGE;
   }
 
@@ -565,12 +608,16 @@ Mode decodeU1Mode(JsonObject purifier, bool hwPurgeActive) {
 
     case 2:
       // Klipper PREHEAT CHAMBER (SnOrca ASA/PC heat soak) -> MODE_HI
-      if (desiredTemp >= 40.0f) targetChamberTemp = desiredTemp;
+      if (desiredTemp >= MIN_REMOTE_TARGET_TEMP &&
+          desiredTemp <= MAX_REMOTE_TARGET_TEMP) {
+        targetChamberTemp = desiredTemp;
+      }
       return MODE_HI;
 
     case 3:
       // Klipper HOT CHAMBER or WEAK COOL
-      if (desiredTemp >= 40.0f) {
+      if (desiredTemp >= MIN_REMOTE_TARGET_TEMP &&
+          desiredTemp <= MAX_REMOTE_TARGET_TEMP) {
         // SnOrca ASA/PC Heat Retention -> MODE_HI
         targetChamberTemp = desiredTemp;
         return MODE_HI;
@@ -613,7 +660,8 @@ void pollMoonraker() {
       String activeExtName = (extruderName != nullptr) ? String(extruderName) : "extruder";
 
       // Dynamically select the ACTIVE extruder based on toolhead (T0 vs T1)
-      JsonObject activeExtruder = (status.containsKey(activeExtName) && !status[activeExtName]["temperature"].isNull())
+      JsonObject activeExtruder = (status[activeExtName].is<JsonObject>() &&
+                                   isFiniteNumber(status[activeExtName]["temperature"]))
                                   ? status[activeExtName]
                                   : status["extruder"];
 
@@ -623,13 +671,19 @@ void pollMoonraker() {
       JsonVariant zValue = position[2];
       JsonVariant progressValue = virtualSdcard["progress"];
       JsonVariant durationValue = printStats["print_duration"];
+      JsonVariant modeValue = purifier["mode"];
+      JsonVariant targetValue = purifier["desired_chamber_temp"];
+      JsonVariant exhaustSpeedValue = purifier["exhaust_fan"]["speed"];
+      JsonVariant innerSpeedValue = purifier["inner_fan"]["speed"];
       const char* stateValue = printStats["state"];
 
       if (status && cavity && activeExtruder && bed && toolhead && position &&
-          virtualSdcard && printStats &&
+          virtualSdcard && printStats && purifier &&
           isFiniteNumber(cavityValue) && isFiniteNumber(nozzleValue) &&
           isFiniteNumber(bedValue) && isFiniteNumber(zValue) &&
           isFiniteNumber(progressValue) && isFiniteNumber(durationValue) &&
+          isFiniteNumber(modeValue) && isFiniteNumber(targetValue) &&
+          isFiniteNumber(exhaustSpeedValue) && isFiniteNumber(innerSpeedValue) &&
           stateValue != nullptr) {
         float parsedCavity = cavityValue.as<float>();
         float parsedNozzle = nozzleValue.as<float>();
@@ -637,6 +691,10 @@ void pollMoonraker() {
         float parsedZ = zValue.as<float>();
         float parsedProgress = progressValue.as<float>();
         float parsedDuration = durationValue.as<float>();
+        float parsedMode = modeValue.as<float>();
+        float parsedTarget = targetValue.as<float>();
+        float normalizedExhaustSpeed = 0.0f;
+        float normalizedInnerSpeed = 0.0f;
 
         // Reject values outside the physical/API ranges before refreshing the watchdog.
         if (parsedCavity >= 1.0f && parsedCavity <= 85.0f &&
@@ -644,7 +702,14 @@ void pollMoonraker() {
             parsedBed >= 0.0f && parsedBed <= 150.0f &&
             parsedZ >= -10.0f && parsedZ <= 500.0f &&
             parsedProgress >= 0.0f && parsedProgress <= 1.0f &&
-            parsedDuration >= 0.0f && parsedDuration <= 4294967295.0f) {
+            parsedDuration >= 0.0f && parsedDuration <= 4294967295.0f &&
+            parsedMode >= 0.0f && parsedMode <= 3.0f &&
+            parsedMode == (float)(int)parsedMode &&
+            (parsedTarget == 0.0f ||
+             (parsedTarget >= MIN_REMOTE_TARGET_TEMP &&
+              parsedTarget <= MAX_REMOTE_TARGET_TEMP)) &&
+            readNormalizedFanSpeed(exhaustSpeedValue, normalizedExhaustSpeed) &&
+            readNormalizedFanSpeed(innerSpeedValue, normalizedInnerSpeed)) {
           chamberTemp = parsedCavity;
           nozzleTemp  = parsedNozzle; // Live temperature of the active nozzle!
           bedTemp     = parsedBed;
@@ -665,30 +730,23 @@ void pollMoonraker() {
           printState    = stateValue;
           printDuration = (unsigned long)parsedDuration;
 
-          // Parse Real Snapmaker U1 Dual-Fan Purifier structure:
-          float exhaustSpeed = 0.0f;
-          float innerSpeed   = 0.0f;
-          if (purifier && purifier.containsKey("exhaust_fan")) {
-            exhaustSpeed = purifier["exhaust_fan"]["speed"] | 0.0f;
-          }
-          if (purifier && purifier.containsKey("inner_fan")) {
-            innerSpeed = purifier["inner_fan"]["speed"] | 0.0f;
-          }
+          // Parse the live Snapmaker U1 dual-fan purifier structure. Both
+          // values are already normalized before mode arbitration.
+          u1PurifierSpeed = max(normalizedExhaustSpeed, normalizedInnerSpeed);
 
-          u1PurifierSpeed = max(exhaustSpeed, innerSpeed);
-          if (u1PurifierSpeed > 1.0f) u1PurifierSpeed /= 100.0f; // normalize 0-100 scale
-
-          // Detect hardware purge signal on Pin 5 (PA8)
-          bool hwPurgeActive = (digitalRead(PIN_U1_PURGE_SENSE) == HIGH);
+          // Detect hardware purge signal on Pin 5 (PA8) using measured duty.
+          bool hwPurgeActive = readU1PurgeSignal();
 
           // Decode SnOrca / Klipper command directly into our Mode enum
           Mode detectedRemote = decodeU1Mode(purifier, hwPurgeActive);
 
           // ARBITRATION: Did U1 command a new active state?
+          // Automatic purge has no local duration limit: it remains active
+          // until U1 reports MODE_OFF. Manual purge similarly remains active
+          // until the physical switch leaves MODE_PURGE.
           if (detectedRemote != lastDetectedRemote) {
             lastDetectedRemote = detectedRemote;
             if (detectedRemote != MODE_OFF) {
-              u1RemoteMode     = detectedRemote;
               u1OverrideActive = true;
               currentMode      = detectedRemote;
             } else if (u1OverrideActive) {
@@ -724,6 +782,8 @@ void executeChamberLogic(unsigned long now) {
   }
 
   // 1. PURGE WITH THERMAL COOLDOWN GATE:
+  // Purge has no local timer. Its owner (U1 or the physical switch) decides
+  // when it ends.
   if (currentMode == MODE_PURGE) {
     // If the physical knob was manually twisted to PURGE, evacuate immediately (bypass cooldown)
     if (!u1OverrideActive) {
@@ -941,7 +1001,7 @@ void updateDisplay() {
     if (secLeft < 10) display.print(" ");
     display.print(secLeft);
     display.print("s");
-  } else if (u1IsPurging) {
+  } else if (u1OverrideActive && currentMode == MODE_PURGE) {
     if (bedTemp <= 60.0f) {
       display.print("U1 PURGE IN PROGRESS");
     } else {

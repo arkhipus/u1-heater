@@ -53,7 +53,7 @@ Any agent writing or modifying code in this repository must obey these rules:
    * If Wi-Fi disconnects or Moonraker telemetry fails to respond, do **NOT** instantly cut the heater. Maintain the last valid heating state for up to 60 seconds (`COMM_TIMEOUT_MS = 60000UL`) to survive brief connection drops.
    * If telemetry remains missing for $\ge 60$ seconds, immediately cut the heater (`PIN_HEATER_RELAY = HIGH`).
 4. **Autonomous Purge Override (Option B):**
-   * If Moonraker reports the printer is purging (`purifier.speed > 0` or `purifier.is_enabled`), the ESP32 must override all manual knob positions (**including `MODE_OFF`**), open the flap to 90°, and run the exhaust fan at 100%. The heater and internal recirculation blower must remain OFF during purge.
+   * If Moonraker reports the printer is purging (`purifier.exhaust_fan.speed >= 0.8`) or the validated U1 PA8 purge signal is active, the ESP32 must override all manual knob positions (**including `MODE_OFF`**), open the flap to 90°, and run the exhaust fan at 100% after the remote bed-cooldown gate. The heater and internal recirculation blower must remain OFF during purge.
 5. **Simultaneous Blower/Heater Start is Permitted:**
    * Blower startup delay is intentionally not required; simultaneous start with the PTC heater is approved.
 6. **Persistent Hysteresis:**
