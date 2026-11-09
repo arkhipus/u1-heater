@@ -37,6 +37,31 @@ Pin 5 is therefore an active-high variable PWM command with a roughly 5 V signal
 
 Pin 1 is therefore an active-low variable PWM command with a roughly 3.3 V signal level and 1 kHz period.
 
+## ESP32 bench validation
+
+The standalone `pwm_input_test.ino` was tested with the U1 connected through the documented resistor networks:
+
+- Pin 1 to ESP32 GPIO 27 through 10 kOhm;
+- Pin 5 to ESP32 GPIO 26 through a 15 kOhm / 22 kOhm divider;
+- Pin 2 to ESP32 GND;
+- Pin 4 to Pin 2 through the 1 kOhm presence resistor;
+- ESP32 powered from USB;
+- Pin 6, the 7530, and the heater disconnected.
+
+Observed examples:
+
+```text
+RECIRC active=0.0%   raw=100.0%  state=OFF
+RECIRC active=23.1%  raw=76.9%   995 Hz  state=REQUESTED / PWM
+RECIRC active=100.0% raw=0.0%    state=ON / FULL
+
+EXHAUST active=0.0%  state=OFF
+EXHAUST active=39.7% 998 Hz      state=REQUESTED / PWM
+EXHAUST active=100.0% state=ON / FULL
+```
+
+The ESP32 consistently detected both U1 commands at approximately 1 kHz, correctly handled Pin 1's active-low polarity, and independently inferred the external 7530 and Noctua states. This validates the two-input signal interface for the next hardware stage.
+
 ## Software findings
 
 The Snapmaker U1 Klipper configuration uses:
