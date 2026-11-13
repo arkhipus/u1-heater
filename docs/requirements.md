@@ -1,27 +1,44 @@
 # U1-driven chamber controller requirements
 
-Status: requirements phase. This document supersedes the previous firmware-centric operating-mode design for the `u1-driven-design` branch. No firmware implementation is implied by these requirements.
+Status: implementation baseline. This document supersedes the previous firmware-centric operating-mode design for the `u1-driven-design` branch.
 
 ## 1. Scope and design intent
 
 The controller is an ESP32 companion to the Snapmaker U1. The U1 UI and filament profiles are the primary source of operating intent. The ESP32 is the safety and actuator layer for the external heater box.
 
-The existing hardware, enclosure, front-panel OLED, five-position switch, valve, blower, heater, filters, and wiring schematic remain in scope and are not redesigned by this branch.
+The existing hardware, enclosure, front-panel OLED, valve, blower, heater, filters, and wiring schematic remain in scope. The five-position mode selector is removed from the control architecture and its input is unused or reserved.
 
 The design must support:
 
 - U1-driven automatic operation during printing.
-- U1 UI control for manual exhaust and recirculation requests.
-- Local chamber preheat.
-- Local emergency purge.
-- A heater-safe service/test mode.
+- U1 UI control for manual exhaust, purge, and recirculation requests.
+- U1-driven chamber preheat.
 - Independent hardware protection for the 110 V heater.
+
+There is no local mode selector in the redefined design. The ESP32 follows U1 intent and provides safety enforcement, actuator sequencing, and telemetry display.
+
+## 1.1 Validated hardware wiring (2026-11-10)
+
+The implementation must follow the assembled wiring, not the historical prototype pin map:
+
+- U1 Pin 6 is a switched U1 output and is not the external 24 V power source.
+- External 24 V comes from the UI power supply into the heater box and powers the Noctua exhaust fan, external recirculation blower, MOSFET module, relay coil, and buck converter.
+- U1 Pin 2 is the common DC signal ground.
+- U1 Pin 1 is monitored by GPIO 27 through the tested 10 kΩ series resistor.
+- The Noctua exhaust fan receives continuous +24 V from the external UI supply; U1 Pin 5 alone drives its blue PWM input and is also monitored by GPIO 26 through 13 kΩ series and 22 kΩ to ground. The fan's 24 V power must not come from U1 Pin 6.
+- U1 Pin 3 is PA6 inner-fan tachometer and remains N/C externally; no external tachometer is available.
+- U1 Pin 4 is PA7 FLAG2 accessory-detection signal. Its use is reserved for validated accessory detection and it must not be confused with the inner-fan tachometer.
+- GPIO 19 is unused and must not be connected to the Noctua PWM wire.
+- GPIO 23 drives the low-side MOSFET; the blower and AEDICO relay coil share its switched return.
+- GPIO 25 drives the heater SSR. The AEDICO relay contact and SSR contact are in series in the heater live path.
+
+The permanent Pin 1 input protection remains a known hardware concern because the tested 10 kΩ-only connection is not a full voltage divider; measure GPIO 27 voltage before final enclosure installation.
 
 ## 2. Authoritative inputs
 
 The controller shall poll Moonraker over the trusted local network. The intended U1 purifier telemetry includes:
 
-- `purifier.mode`
+- `purifier.mode` (U1 source defines idle `0`, cool-chamber `1`, preheat-chamber `2`, hot-chamber `3`; verify the live telemetry representation)
 - `purifier.desired_chamber_temp`
 - `purifier.critical_chamber_temp`
 - `purifier.exhaust_fan.speed`
@@ -32,7 +49,7 @@ The controller shall poll Moonraker over the trusted local network. The intended
 - `print_stats.state`
 - `virtual_sdcard.progress` when available
 
-The exact response schema must be validated against the target U1 before firmware implementation.
+The exact response schema must be validated against the target U1 before firmware implementation. The standard bed-heating control must not be assumed to activate purifier mode; on the target U1, manual chamber preheat requires a validated `SET_PURIFIER_MODE` command, custom Klipper/Moonraker macro, or slicer start sequence.
 
 ### 2.1 Binary recirculation interpretation
 
@@ -60,33 +77,23 @@ A proposed default target is 50 °C, subject to final validation. A proposed con
 
 The final target, hysteresis, minimum on/off times, and software cutoff must be approved before code work begins.
 
-## 3. Operating modes
+## 3. U1-driven operating behavior
 
-The five-position switch shall be redesigned as:
+U1 is the sole source of operating intent. The ESP32 does not generate a competing local mode, fan speed, or purge command. The U1 purifier firmware defines `MODE_PREHEAT_CHAMBER = 2` and `MODE_HOT_CHAMBER = 3`, and exposes `SET_PURIFIER_MODE`; the exact touchscreen/web UI action and live command arguments still require validation on the target machine.
 
-| Position | Name | Intent |
-|---|---|---|
-| 1 | `OFF` | Force heater, blower, and exhaust off; valve closed after safe motion policy. |
-| 2 | `AUTO` | Follow U1 purifier intent and filament-profile commands through ESP32 safety logic. |
-| 3 | `PREHEAT` | Locally request closed-loop chamber preheat, independent of a print profile. |
-| 4 | `PURGE` | Locally force valve open and exhaust; heater off. |
-| 5 | `SERVICE` | Exercise valve and fans for assembly/testing; heater permanently inhibited. |
+### 3.1 Exhaust/flap behavior
 
-The switch is an authority selector, not a second speed controller.
+- U1 Pin 5 remains the sole Noctua PWM output.
+- GPIO 26 monitors the Pin 5 PWM signal; GPIO 19 remains unused.
+- Any validated nonzero U1 exhaust PWM request opens the external butterfly flap to its fixed open endpoint.
+- A validated zero PWM request closes the flap to its fixed closed endpoint.
+- The ESP32 must apply a short debounce/hold time to prevent servo chatter around zero.
+- The flap is an enable gate, not a proportional airflow control. It does not track PWM duty.
+- On telemetry loss, the ESP32 may preserve a safe cooldown/exhaust state, but must never enable the heater.
 
-### 3.1 Priority
+### 3.2 U1-following behavior
 
-The effective priority shall be:
-
-```text
-OFF > PURGE > SERVICE > PREHEAT > AUTO
-```
-
-`AUTO` is the only mode in which U1 UI and filament-profile requests control the external system.
-
-### 3.2 AUTO behavior
-
-In `AUTO`:
+In normal operation:
 
 - U1 mode and chamber target determine whether heating is requested.
 - A nonzero U1 inner-fan request permits the external blower to run.
@@ -99,41 +106,16 @@ In `AUTO`:
 
 The ESP32 must not infer a heating request from fan speed alone. Heating requires a valid positive chamber target and a U1 heating/preheat intent.
 
-### 3.3 PREHEAT behavior
+### 3.3 Purge and preheat
 
-In `PREHEAT`:
+Purge and preheat are selected through the U1 UI/profile controls. The ESP32 observes the resulting U1 requests rather than issuing a local override:
 
-- Valve closed.
-- External recirculation blower ON.
-- PTC controlled by chamber temperature hysteresis.
-- Fixed target selected by the requirements configuration, initially proposed as 50 °C.
-- Maximum preheat duration required.
-- Heater disabled on telemetry loss, invalid temperature, over-temperature, or loss of the hardware blower interlock.
-- Transition to a safe non-heating state after timeout.
-
-### 3.4 PURGE behavior
-
-In local `PURGE`:
-
-- Heater forced OFF.
-- Recirculation blower OFF unless explicitly needed for a safe transition.
-- Valve commanded open and given time to move.
-- External exhaust enabled only after the valve-open condition is satisfied by the chosen validation method.
-- No bed-temperature gate is required for an explicit local purge unless the final safety review adds one.
-
-For automatic U1 purge/cooldown, retain the existing policy under review: wait for bed temperature at or below 60 °C before aggressive exhaust if that protects the print. The final distinction between automatic and manual purge must be documented before implementation.
-
-### 3.5 SERVICE behavior
-
-In `SERVICE`:
-
-- Heater hard-disabled in firmware logic.
-- Valve open/close test.
-- External blower on/off test.
-- External exhaust fan test with valve open only.
-- OLED displays switch position, commands, temperature, and fault state.
-- No fan RPM claim may be displayed for the external blower because it has no tachometer.
-- A deliberate hold-to-enter or timeout is recommended to prevent accidental service activation.
+- Any positive U1 exhaust PWM opens the flap.
+- U1 inner-fan/recirculation request turns the external blower ON as a binary actuator.
+- U1 heating intent plus valid temperature telemetry allows thermostatic heater control.
+- Heater is forced OFF immediately on invalid telemetry, over-temperature, blower command OFF, exhaust safety conflict, or hardware-interlock loss.
+- Manual U1 purge therefore works without a physical selector: U1 commands exhaust, Pin 5 drives the Noctua, and GPIO 26 causes the ESP32 to open the flap.
+- No direct ESP32 drive of GPIO 19 or the Noctua PWM wire is used.
 
 ## 4. Safety requirements
 
@@ -142,12 +124,12 @@ In `SERVICE`:
 The heater shall default OFF during:
 
 - ESP32 reset or boot;
-- invalid switch state;
+- invalid or unavailable U1 control state;
 - no validated telemetry;
 - stale or failed Moonraker response;
 - invalid, missing, non-finite, or implausible cavity temperature;
 - over-temperature;
-- active purge or exhaust;
+- active U1 purge or exhaust when the safety policy requires heater inhibition;
 - blower command OFF;
 - loss of the hardware blower-interlock permission;
 - any internal software fault.
@@ -165,13 +147,15 @@ The external blower has no tachometer. Heater permission shall therefore rely on
 
 An airflow switch or current sensor may be added later, but is not required for this requirements baseline. A commanded blower is not equivalent to proven airflow.
 
-### 4.3 Valve and exhaust interlock
+### 4.3 Valve and exhaust sequencing
 
-- Exhaust fan must never run against a closed valve.
-- Any positive exhaust command must first produce the fixed open-valve state.
+- A brief fan-start interval while the servo moves to the open endpoint is acceptable.
+- On every observed exhaust state transition, apply the direct rule: `exhaust_pwm > 0 → flap_open`; `exhaust_pwm = 0 → flap_closed`.
+- Any positive Pin 5/GPIO 26 exhaust activity shall command the servo open immediately; a transition back to zero shall command the servo closed after the configured short release debounce.
+- Normal sustained exhaust operation requires the flap to reach its fixed open endpoint; the implementation shall use a bounded servo-movement delay for actuator settling, not as a different control decision.
 - Partial servo opening is not part of automatic operation unless a future measurement proves it useful.
-- Servo movement and startup position must be defined.
-- On controller fault, the valve and exhaust behavior must be chosen explicitly; heater OFF is mandatory.
+- On controller boot, reset, or fault, the heater remains OFF. If exhaust PWM is active, the valve shall move/open rather than remain intentionally closed against the running fan.
+- When exhaust PWM returns to zero, the servo may close after a short release delay.
 
 ### 4.4 Mains separation
 
@@ -182,8 +166,8 @@ An airflow switch or current sensor may be added later, but is not required for 
 - Poll interval, timeout, retry policy, and stale-data limit must be specified before implementation.
 - JSON fields must be explicitly checked; missing fields must not silently become zero.
 - Numeric values must be finite, bounded, and unit-documented.
-- U1 exhaust-speed units must be confirmed, then mapped to the external exhaust PWM as a bounded percentage.
-- The U1 exhaust request is an enable/request signal for the valve: any positive exhaust request opens the external flap to its fixed open position.
+- U1 exhaust-speed units must be confirmed for display and GPIO 26 validation; the ESP32 does not generate or modify this PWM.
+- The U1 exhaust request is an enable/request signal for the valve: any positive Pin 5/GPIO 26 activity opens the external flap to its fixed open position.
 - No U1 or filament setting currently establishes a partial butterfly-flap angle. Automatic operation shall use closed/open endpoints only.
 - The controller must distinguish U1 native purifier fan RPM from external actuator state.
 - Every command source and arbitration decision should be visible on the OLED.
@@ -193,7 +177,7 @@ An airflow switch or current sensor may be added later, but is not required for 
 The existing 128x64 OLED layout is retained. It uses a compact title band, a horizontal separator, and a vertical separator between two content columns:
 
 ```text
-AUTO [U1]          42% ▓▓▓
+U1 FOLLOW          42% ▓▓▓
 ────────────────────────────
 CH:50.2C      │ T:50.0C
 H:ON          │ R:ON
@@ -201,17 +185,17 @@ V:OPEN        │ X:060%
 TL:OK         │ CPU:42C
 ```
 
-The title's upper-right area retains print percentage and the existing graphical progress indicator when a print is active. The top-left area shows the effective mode and command source. The four content rows use the existing vertical split; each half-column must remain short enough for the default font.
+The title's upper-right area retains print percentage and the existing graphical progress indicator when a print is active. The top-left area shows the U1-reported effective mode and command source. The four content rows use the existing vertical split; each half-column must remain short enough for the default font.
 
 Required normal-view fields:
 
-- effective mode and command source;
+- U1 mode and command source;
 - actual chamber temperature;
 - desired chamber temperature;
 - heater state;
 - external recirculation blower command state;
 - exhaust valve state;
-- external exhaust PWM percentage;
+- observed U1 exhaust PWM activity/duty, when measurable;
 - telemetry link state (`TL:OK` or equivalent);
 - ESP32 internal temperature (`CPU:xxC`).
 
@@ -233,10 +217,12 @@ The following must be captured from the U1 without changing hardware:
 8. Manual purge behavior.
 9. Exact units and ranges for every fan-speed field.
 
+The physical selector is not part of this validation; verify that its input is electrically isolated or left unused.
+
 Then validate the assembled controller with the heater disconnected:
 
 - boot and reset states;
-- all five switch positions;
+- selector input disconnected/unused;
 - valve/exhaust interlock;
 - blower relay behavior;
 - simulated telemetry loss and malformed responses;
@@ -247,7 +233,6 @@ Mains heater testing is a later phase and requires explicit electrical verificat
 
 ## 8. Out of scope for this branch
 
-- Firmware implementation.
 - Changes to the electrical schematic.
 - Changes to the purchased components.
 - Mains testing.

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="Electron">
+  <diagram id="low-voltage" name="01 Low Voltage and Signals">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1400" pageHeight="900">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="pwr" value="UI POWER SUPPLY / HEATER BOX&#xa;&#xa;+24 V BUS&#xa;GND BUS&#xa;&#xa;MP1584: +24 V → +5 V" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4d6;strokeColor=#b7791f;fontStyle=1;spacing=10;" vertex="1" parent="1"><mxGeometry x="40" y="80" width="230" height="180" as="geometry"/></mxCell>
+        <mxCell id="u1" value="SNAPMAKER U1 TOP PORT&#xa;&#xa;Pin 6: +24 V to Noctua fan only&#xa;Pin 2: GND&#xa;Pin 5: PA8 exhaust PWM&#xa;Pin 1: PA9 inner/recirculation PWM&#xa;Pin 3: PA6 inner-fan tachometer N/C&#xa;Pin 4: PA7 FLAG2 accessory detection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedcc;strokeColor=#dd6b20;fontStyle=1;spacing=10;" vertex="1" parent="1"><mxGeometry x="40" y="370" width="260" height="210" as="geometry"/></mxCell>
+        <mxCell id="r1" value="R1&#xa;10 kΩ series" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fffaf0;strokeColor=#b7791f;align=center;" vertex="1" parent="1"><mxGeometry x="370" y="390" width="100" height="55" as="geometry"/></mxCell>
+        <mxCell id="r3" value="R3&#xa;13 kΩ series" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fffaf0;strokeColor=#b7791f;align=center;" vertex="1" parent="1"><mxGeometry x="370" y="500" width="100" height="55" as="geometry"/></mxCell>
+        <mxCell id="r4" value="R4&#xa;22 kΩ to GND" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fffaf0;strokeColor=#b7791f;align=center;" vertex="1" parent="1"><mxGeometry x="530" y="620" width="120" height="55" as="geometry"/></mxCell>
+        <mxCell id="esp" value="ESP32 CONTROLLER&#xa;&#xa;VIN ← +5 V&#xa;GND ← common GND&#xa;GPIO 18 → servo signal&#xa;GPIO 23 → blower MOSFET control&#xa;GPIO 25 → heater SSR input&#xa;GPIO 26 ← U1 Pin 5 via R3/R4&#xa;GPIO 27 ← U1 Pin 1 via R1&#xa;GPIO 34 ← mode switch&#xa;GPIO 35 ← purge sense&#xa;Wi-Fi → Moonraker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f5ff;strokeColor=#3182ce;fontStyle=1;spacing=10;" vertex="1" parent="1"><mxGeometry x="700" y="260" width="300" height="300" as="geometry"/></mxCell>
+        <mxCell id="noctua" value="NOCTUA 24 V PWM FAN&#xa;&#xa;Red → external +24 V&#xa;Black → common GND&#xa;Blue → U1 Pin 5 PA8 PWM&#xa;Green tach → N/C" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6ffed;strokeColor=#38a169;spacing=10;" vertex="1" parent="1"><mxGeometry x="1080" y="80" width="250" height="140" as="geometry"/></mxCell>
+        <mxCell id="blower" value="24 V 7530 BLOWER&#xa;Powered from external +24 V&#xa;Low side switched by MOSFET&#xa;GPIO 23 controls MOSFET" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6ffed;strokeColor=#38a169;spacing=10;" vertex="1" parent="1"><mxGeometry x="1080" y="300" width="250" height="120" as="geometry"/></mxCell>
+        <mxCell id="servo" value="MG90S SERVO&#xa;Red → +5 V buck output&#xa;Brown → common GND&#xa;Yellow → GPIO 18" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbd1;strokeColor=#d69e2e;spacing=10;" vertex="1" parent="1"><mxGeometry x="1080" y="500" width="250" height="120" as="geometry"/></mxCell>
+        <mxCell id="ssr" value="G3MB-202P 5 V SSR&#xa;DC+ ← +5 V buck output&#xa;DC- ← common GND&#xa;IN ← GPIO 25&#xa;AC terminals belong on mains page" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe8e8;strokeColor=#c53030;spacing=10;" vertex="1" parent="1"><mxGeometry x="1080" y="690" width="250" height="130" as="geometry"/></mxCell>
+        <mxCell id="e1" value="+24 V / GND" edge="1" parent="1" source="pwr" target="noctua" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b7791f;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="Pin 1" edge="1" parent="1" source="u1" target="r1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b7791f;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="GPIO 27" edge="1" parent="1" source="r1" target="esp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b7791f;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="Pin 5" edge="1" parent="1" source="u1" target="r3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b7791f;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="GPIO 26 node" edge="1" parent="1" source="r3" target="esp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b7791f;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="GND" edge="1" parent="1" source="r4" target="pwr" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#718096;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="Pin 5 PWM" edge="1" parent="1" source="u1" target="noctua" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#3182ce;strokeWidth=3;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="GPIO 23" edge="1" parent="1" source="esp" target="blower" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#3182ce;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="GPIO 18" edge="1" parent="1" source="esp" target="servo" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#3182ce;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e10" value="GPIO 25" edge="1" parent="1" source="esp" target="ssr" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#3182ce;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e11" value="+5 V / GND" edge="1" parent="1" source="pwr" target="esp" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#dd6b20;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="relay_coil" value="AEDICO RELAY COIL&#xa;DC+ ← external +24 V&#xa;DC− ← MOSFET OUT−&#xa;Energized only with blower" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4d6;strokeColor=#b7791f;spacing=10;" vertex="1" parent="1"><mxGeometry x="1080" y="430" width="250" height="120" as="geometry"/></mxCell>
+        <mxCell id="e12" value="+24 V coil supply" edge="1" parent="1" source="pwr" target="relay_coil" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b7791f;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e13" value="MOSFET OUT− switched return" edge="1" parent="1" source="blower" target="relay_coil" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#3182ce;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="mains" name="02 110V Heater Safety">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1400" pageHeight="700">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="zone" value="110 V AC ONLY - PHYSICALLY SEPARATE FROM LOW VOLTAGE" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 8;strokeColor=#c53030;strokeWidth=3;verticalAlign=top;fontStyle=1;fontSize=13;" vertex="1" parent="1"><mxGeometry x="20" y="20" width="1320" height="600" as="geometry"/></mxCell>
+        <mxCell id="in" value="AC INFEED&#xa;L / N / PE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe8e8;strokeColor=#c53030;spacing=10;" vertex="1" parent="1"><mxGeometry x="70" y="230" width="170" height="100" as="geometry"/></mxCell>
+        <mxCell id="ksd" value="KSD301&#xa;70°C NC&#xa;manual reset" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe8e8;strokeColor=#c53030;spacing=10;" vertex="1" parent="1"><mxGeometry x="300" y="230" width="170" height="100" as="geometry"/></mxCell>
+        <mxCell id="relay" value="AEDIKO 24 V RELAY&#xa;DC+: external +24 V&#xa;DC−: MOSFET OUT− switched return&#xa;COM → NO in heater live path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4d6;strokeColor=#b7791f;spacing=10;" vertex="1" parent="1"><mxGeometry x="530" y="210" width="230" height="140" as="geometry"/></mxCell>
+        <mxCell id="ssr" value="G3MB-202P SSR&#xa;DC input: 5 V / GPIO 25&#xa;AC output switches heater live" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe8e8;strokeColor=#c53030;spacing=10;" vertex="1" parent="1"><mxGeometry x="820" y="210" width="210" height="140" as="geometry"/></mxCell>
+        <mxCell id="fuse" value="121°C THERMAL FUSE&#xa;one-shot series cutoff" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;spacing=10;" vertex="1" parent="1"><mxGeometry x="1090" y="230" width="170" height="100" as="geometry"/></mxCell>
+        <mxCell id="heater" value="PTC HEATER&#xa;110 V AC&#xa;100–150 W" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe8e8;strokeColor=#c53030;spacing=10;" vertex="1" parent="1"><mxGeometry x="1090" y="420" width="170" height="100" as="geometry"/></mxCell>
+        <mxCell id="pilot" value="NEON PILOT LIGHT&#xa;parallel across heater" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbd1;strokeColor=#d69e2e;spacing=10;" vertex="1" parent="1"><mxGeometry x="820" y="430" width="210" height="80" as="geometry"/></mxCell>
+        <mxCell id="neutral" value="NEUTRAL BUS&#xa;N → heater and pilot&#xa;PE → enclosure only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f5ff;strokeColor=#3182ce;spacing=10;" vertex="1" parent="1"><mxGeometry x="300" y="430" width="300" height="90" as="geometry"/></mxCell>
+        <mxCell id="a1" value="L" edge="1" parent="1" source="in" target="ksd" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#c53030;strokeWidth=3;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="a2" value="live after thermostat" edge="1" parent="1" source="ksd" target="relay" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#c53030;strokeWidth=3;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="a3" value="switched live" edge="1" parent="1" source="relay" target="ssr" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#c53030;strokeWidth=3;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="a4" value="heater live" edge="1" parent="1" source="ssr" target="fuse" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#c53030;strokeWidth=3;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="a5" value="fused live" edge="1" parent="1" source="fuse" target="heater" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#c53030;strokeWidth=3;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="a6" value="N" edge="1" parent="1" source="in" target="neutral" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3182ce;strokeWidth=3;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="a7" value="N" edge="1" parent="1" source="neutral" target="heater" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3182ce;strokeWidth=3;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="a8" value="parallel" edge="1" parent="1" source="heater" target="pilot" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#d69e2e;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="a9" value="N" edge="1" parent="1" source="neutral" target="pilot" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3182ce;strokeWidth=2;"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
