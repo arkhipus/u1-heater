@@ -6,268 +6,100 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <math.h>
+#include <string.h>
+
+#include "bench_test_config.h"
 #include "secrets.h"
+#include "u1_control_policy.h"
 
-// --- Pin Definitions ---
-#define PIN_SERVO          18
-#define PIN_NOCTUA_PWM     19
-#define PIN_BLOWER         23
-#define PIN_HEATER_RELAY   25  // Active-LOW SSR: LOW=ON, HIGH=OFF
-#define PIN_SWITCH_ADC     34
-#define PIN_U1_PURGE_SENSE 35  // Hardware PWM input from U1 Top Port Pin 5 (PA8)
-#define PIN_I2C_SDA        21
-#define PIN_I2C_SCL        22
+// GPIO 26 monitors U1 Pin 5; the ESP32 never generates the exhaust PWM.
+constexpr uint8_t PIN_SERVO = 18;
+constexpr uint8_t PIN_BLOWER = 23;
+constexpr uint8_t PIN_HEATER_RELAY = 25;
+constexpr uint8_t PIN_EXHAUST_PWM_MONITOR = 26;
+constexpr uint8_t PIN_RECIRC_PWM_MONITOR = 27;
+constexpr uint8_t PIN_I2C_SDA = 21;
+constexpr uint8_t PIN_I2C_SCL = 22;
+constexpr uint8_t HEATER_RELAY_ON_LEVEL =
+    HEATER_RELAY_ACTIVE_LOW ? LOW : HIGH;
+constexpr uint8_t HEATER_RELAY_OFF_LEVEL =
+    HEATER_RELAY_ACTIVE_LOW ? HIGH : LOW;
 
-// --- Constants ---
-#define SCREEN_WIDTH      128
-#define SCREEN_HEIGHT     64
-#define OLED_RESET        -1
-#define OLED_I2C_ADDR     0x3C
+constexpr uint8_t SCREEN_WIDTH = 128;
+constexpr uint8_t SCREEN_HEIGHT = 64;
+constexpr int8_t OLED_RESET = -1;
+constexpr uint8_t OLED_I2C_ADDR = 0x3C;
 
-const unsigned long PURGE_DURATION_MS = 10UL * 60UL * 1000UL; // 10 minutes
-const unsigned long POLL_INTERVAL_MS  = 2000UL;               // 2 seconds
-const unsigned long COMM_TIMEOUT_MS   = 60000UL;              // 1 minute failsafe cutoff
-const unsigned long RECONNECT_INTV_MS = 10000UL;              // 10s between reconnect attempts
-const unsigned long DISPLAY_INTERVAL_MS = 250UL;
+constexpr uint32_t POLL_INTERVAL_MS = 2000;
+constexpr uint32_t HTTP_TIMEOUT_MS = 1500;
+constexpr uint32_t TELEMETRY_GRACE_MS = 60000;
+constexpr uint32_t RECONNECT_INTERVAL_MS = 10000;
+constexpr uint32_t DISPLAY_INTERVAL_MS = 250;
+constexpr float CPU_TEMP_FILTER_ALPHA = 0.1f;
+constexpr uint32_t VALVE_CLOSE_DELAY_MS = 500;
+constexpr uint32_t PWM_SAMPLE_TIMEOUT_US = 2500;
+constexpr uint32_t PWM_STALE_MS = 500;
+constexpr uint8_t PWM_SAMPLES_REQUIRED = 3;
+constexpr float PWM_MIN_HZ = 700.0f;
+constexpr float PWM_MAX_HZ = 1300.0f;
+constexpr uint8_t SERVO_CLOSED_DEG = 180;
+constexpr uint8_t SERVO_OPEN_DEG = 80;
 
-// --- State Enums ---
-enum Mode { MODE_OFF, MODE_LOW, MODE_MED, MODE_HI, MODE_PURGE };
+enum class SampleType : uint8_t { INVALID, PWM, STATIC };
+enum class LinkState : uint8_t { WAITING, OK, LOST, EXPIRED, INVALID };
 
-// --- Globals ---
+struct PwmSample {
+  SampleType type = SampleType::INVALID;
+  bool level = false;
+  // rawDuty is electrical HIGH time; activeDuty accounts for signal polarity.
+  float rawDuty = 0.0f;
+  float activeDuty = 0.0f;
+  float frequencyHz = 0.0f;
+};
+
+struct PwmState {
+  PwmSample latest;
+  float activeDuty = 0.0f;
+  float rawDuty = 0.0f;
+  float frequencyHz = 0.0f;
+  uint32_t lastValidMs = 0;
+  uint8_t validPwmSamples = 0;
+  uint8_t stableStaticSamples = 0;
+  bool candidateStaticLevel = false;
+  bool confirmedStaticLevel = false;
+  bool valid = false;
+};
+
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 Servo flapServo;
+PwmState exhaustPwm;
+PwmState recircPwm;
+u1heater::PolicyState policyState;
+u1heater::Telemetry telemetry = {};
 
-// Actuator State Tracking
-int currentServoAngle = 0;
-int currentNoctuaPWM  = 0;
-bool currentBlowerOn  = false;
-bool currentHeaterOn  = false;
-
-// Arbitration: "Last Action Wins" State
-Mode currentMode = MODE_OFF;
-Mode lastPhysicalSwitch = MODE_OFF;
-Mode u1RemoteMode = MODE_OFF;
-Mode lastDetectedRemote = MODE_OFF;
-bool u1OverrideActive = false;
-float targetChamberTemp = 50.0f;  // Dynamic setpoint for MODE_HI (defaults to 50C)
-bool telemetryWatchdogOk = false; // Latch: True once valid telemetry received, false if watchdog expires
-bool telemetryLost = false;       // True when the most recent poll failed (grace period in progress)
-float chamberTemp = 0.0;
-float nozzleTemp = 0.0;
-float bedTemp = 0.0;
-float toolheadZ = 0.0;
-String activeTool = "T0";
-float printProgress = 0.0;
-unsigned long printDuration = 0;
+bool displayAvailable = false;
+bool telemetryEverValid = false;
+bool telemetryInvalid = false;
+bool telemetryTransportLost = false;
+bool progressValid = false;
+bool valveInactiveTiming = false;
+bool currentBlowerOn = false;
+bool currentHeaterOn = false;
+bool valveOpen = true;
+bool pollScheduled = false;
+float printProgress = 0.0f;
+float filteredCpuTempC = 0.0f;
+bool cpuTempFilterInitialized = false;
+uint32_t lastValidPollTime = 0;
+uint32_t lastPollTime = 0;
+uint32_t lastDisplayTime = 0;
+uint32_t lastReconnectAttempt = 0;
+uint32_t valveInactiveSince = 0;
+uint8_t currentServoAngle = SERVO_OPEN_DEG;
+LinkState linkState = LinkState::WAITING;
+u1heater::InhibitReason inhibitReason =
+    u1heater::InhibitReason::INVALID_TELEMETRY;
 String printState = "offline";
-float u1PurifierSpeed = 0.0;
-bool u1PurifierEnabled = false;
-
-// Timers
-unsigned long lastPollTime = 0;
-unsigned long lastValidPollTime = 0;
-unsigned long lastDisplayTime = 0;
-unsigned long lastReconnectAttempt = 0;
-
-void setup() {
-  Serial.begin(115200);
-
-  // Initialize Outputs (Heater starts OFF: HIGH for active-low SSR)
-  pinMode(PIN_HEATER_RELAY, OUTPUT);
-  digitalWrite(PIN_HEATER_RELAY, HIGH); 
-  pinMode(PIN_BLOWER, OUTPUT);
-  pinMode(PIN_NOCTUA_PWM, OUTPUT);
-  pinMode(PIN_U1_PURGE_SENSE, INPUT);
-  digitalWrite(PIN_BLOWER, LOW);
-  analogWrite(PIN_NOCTUA_PWM, 0);
-
-  // Initialize Servo
-  flapServo.attach(PIN_SERVO);
-  flapServo.write(0); // Sealed default
-
-  // Initialize I2C and OLED
-  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-  if (display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR)) {
-    display.clearDisplay();
-    display.setTextColor(SSD1306_WHITE);
-    display.setTextSize(1);
-    // Top Yellow Zone (Y=0..15): place cleanly at Y=4
-    display.setCursor(0, 4);
-    display.println("Connecting WiFi...");
-    display.drawLine(0, 14, 128, 14, SSD1306_WHITE);
-
-    // Blue Zone (Y=16..63)
-    display.setCursor(0, 24);
-    display.print("SSID: ");
-    display.println(WIFI_SSID);
-    display.display();
-  }
-
-  // Initialize WiFi
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.persistent(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  // Give WiFi up to 10 seconds to connect during boot
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(WIFI_SSID);
-  unsigned long startAttempt = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 10000) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi Connected! IP: " + WiFi.localIP().toString());
-  } else {
-    Serial.println("\nWiFi pending, moving to main loop...");
-  }
-}
-
-void loop() {
-  unsigned long now = millis();
-
-  // ========================================================
-  // 1. WI-FI DISCONNECT HANDLING (AUTO-RESUMING)
-  // ========================================================
-  if (WiFi.status() != WL_CONNECTED) {
-    handleWifiDisconnected(now);
-    return; // Loops here trying to reconnect; once back online, loop continues!
-  }
-
-  // ========================================================
-  // 2. NORMAL RUNNING LOOP (WI-FI CONNECTED)
-  // ========================================================
-  // --- ARBITRATION: Last Action Wins ---
-  Mode rawSwitch = readSwitchMode();
-
-  // If the user physically turned the knob, physical knob reclaims master control!
-  if (rawSwitch != lastPhysicalSwitch) {
-    lastPhysicalSwitch = rawSwitch;
-    u1OverrideActive   = false;
-    currentMode        = rawSwitch;
-    if (rawSwitch == MODE_HI) {
-      targetChamberTemp = 50.0f; // Manual HI mode defaults strictly to 50C
-    }
-  }
-
-  // Poll Moonraker API every 2 seconds (or immediately on first loop pass)
-  if (lastPollTime == 0 || now - lastPollTime >= POLL_INTERVAL_MS) {
-    lastPollTime = now;
-    pollMoonraker();
-  }
-
-  // Check 1-minute safety timeout on telemetry
-  // If no valid packet has ever arrived (lastValidPollTime == 0), or if > 60s since last valid packet:
-  bool commsTimeout = (lastValidPollTime == 0) || (millis() - lastValidPollTime >= COMM_TIMEOUT_MS);
-
-  if (commsTimeout) {
-    // Safety Cutoff: Suspend heater while telemetry is missing/stale, but keep running loop
-    digitalWrite(PIN_HEATER_RELAY, HIGH); // Active-LOW: HIGH = OFF
-    currentHeaterOn = false;
-    telemetryWatchdogOk = false;
-  } else {
-    // Telemetry watchdog is healthy: Execute normal environmental control logic
-    executeChamberLogic(now);
-  }
-
-  // Throttle OLED I2C bus traffic to DISPLAY_INTERVAL_MS (250 ms = 4 FPS)
-  if (now - lastDisplayTime >= DISPLAY_INTERVAL_MS) {
-    lastDisplayTime = now;
-    if (commsTimeout) {
-      displayTimeoutWarning(now);
-    } else {
-      updateDisplay();
-    }
-  }
-}
-
-void handleWifiDisconnected(unsigned long now) {
-  // Safe elapsed calculation since last valid telemetry
-  unsigned long elapsedWithoutData = (lastValidPollTime > 0) ? (now - lastValidPollTime) : now;
-  bool timeoutExceeded = (elapsedWithoutData >= COMM_TIMEOUT_MS);
-
-  if (timeoutExceeded) {
-    // 60-SECOND WATCHDOG CUTOFF: Wi-Fi down too long -> cut heater
-    digitalWrite(PIN_HEATER_RELAY, HIGH); // Active-LOW: HIGH = OFF
-    currentHeaterOn = false;
-    telemetryWatchdogOk = false;
-  }
-  // Within the 60s grace period:
-  // Retain last known actuator states (heats through temporary Wi-Fi hiccups)
-
-  // Display "NO WI-FI" screen with status and live countdown
-  display.clearDisplay();
-  
-  // Yellow Header (Rows 0-15)
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.print("NETWORK: [RECONNECT]");
-  display.drawLine(0, 12, 128, 12, SSD1306_WHITE);
-
-  // Blue Main Body (Rows 16-63)
-  display.setCursor(14, 20);
-  display.setTextSize(2);
-  display.print("NO WI-FI");
-
-  display.setTextSize(1);
-  display.setCursor(0, 42);
-  if (timeoutExceeded) {
-    display.print("HEAT SUSPENDED (SAFE)");
-    display.setCursor(0, 53);
-    display.print("WAITING TO RESUME...");
-  } else {
-    display.print(currentHeaterOn ? "HEATING (GRACE PERIOD)" : "RECONNECTING...");
-    display.setCursor(0, 53);
-    unsigned long secLeft = (COMM_TIMEOUT_MS - elapsedWithoutData) / 1000;
-    display.print("Cutoff in: ");
-    display.print(secLeft);
-    display.print("s");
-  }
-  display.display();
-
-  // Retry reconnecting every 10 seconds (don't hammer the radio!)
-  if (now - lastReconnectAttempt >= RECONNECT_INTV_MS) {
-    lastReconnectAttempt = now;
-    Serial.println("Attempting WiFi reconnect...");
-    WiFi.reconnect();
-  }
-
-  delay(250);
-}
-
-void displayTimeoutWarning(unsigned long now) {
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.print("TELEMETRY: [WAITING]");
-  display.drawLine(0, 12, 128, 12, SSD1306_WHITE);
-
-  display.setTextSize(1);
-  display.setCursor(0, 20);
-  if (lastValidPollTime == 0) {
-    display.print("WAITING FOR U1 DATA");
-  } else {
-    display.print("NO TELEMETRY > 1 MIN");
-  }
-  display.setCursor(0, 34);
-  display.print("HEATER: [SUSPENDED]");
-  display.setCursor(0, 48);
-  display.print("AUTO-RESUMES ON DATA");
-  display.display();
-}
-
-Mode readSwitchMode() {
-  int rawADC = analogRead(PIN_SWITCH_ADC); // 0 to 4095
-  // Voltage bands for 5 positions (approx 0V, 0.82V, 1.65V, 2.48V, 3.3V)
-  if (rawADC < 400)  return MODE_OFF;    // ~0.0V
-  if (rawADC < 1500) return MODE_LOW;    // ~0.82V
-  if (rawADC < 2500) return MODE_MED;    // ~1.65V
-  if (rawADC < 3500) return MODE_HI;     // ~2.48V
-  if (rawADC <= 4095) return MODE_PURGE; // ~3.3V
-  return MODE_OFF;                       // Invalid ADC reading: fail safe
-}
 
 bool isFiniteNumber(JsonVariantConst value) {
   if (!value.is<float>() && !value.is<double>() &&
@@ -278,431 +110,743 @@ bool isFiniteNumber(JsonVariantConst value) {
   return isfinite(value.as<float>());
 }
 
-// Helper to map SnOrca / Klipper Purifier commands directly to our existing Mode enum
-Mode decodeU1Mode(JsonObject purifier, bool hwPurgeActive) {
-  if (!purifier) return MODE_OFF;
-
-  float exhaustSpeed = 0.0f;
-  if (purifier.containsKey("exhaust_fan")) {
-    exhaustSpeed = purifier["exhaust_fan"]["speed"] | 0.0f;
+bool readNumber(JsonVariantConst value, float &result) {
+  if (!isFiniteNumber(value)) {
+    return false;
   }
-  int mode = purifier["mode"] | 0;
-  float desiredTemp = purifier["desired_chamber_temp"] | 0.0f;
-
-  // 1. Explicit Exhaust Dump / End-of-Print Purge
-  if (exhaustSpeed > 0.8f || hwPurgeActive) {
-    return MODE_PURGE;
-  }
-
-  // 2. Direct 1-to-1 Mapping of Klipper Purifier Modes to our 5 Profiles
-  switch (mode) {
-    case 1:
-      // Klipper COOL CHAMBER (SnOrca PLA strong cool) -> MODE_LOW
-      return MODE_LOW;
-
-    case 2:
-      // Klipper PREHEAT CHAMBER (SnOrca ASA/PC heat soak) -> MODE_HI
-      if (desiredTemp >= 40.0f) targetChamberTemp = desiredTemp;
-      return MODE_HI;
-
-    case 3:
-      // Klipper HOT CHAMBER or WEAK COOL
-      if (desiredTemp >= 40.0f) {
-        // SnOrca ASA/PC Heat Retention -> MODE_HI
-        targetChamberTemp = desiredTemp;
-        return MODE_HI;
-      } else {
-        // SnOrca PETG Weak Cool / Gentle Draft -> MODE_MED
-        return MODE_MED;
-      }
-
-    default:
-      if (exhaustSpeed > 0.05f) return MODE_PURGE;
-      return MODE_OFF;
-  }
+  result = value.as<float>();
+  return true;
 }
 
-void pollMoonraker() {
+// Moonraker fan speeds may be fractions (0-1) or percentages (0-100).
+bool normalizeFanSpeed(JsonVariantConst value, float &percent) {
+  float raw = 0.0f;
+  if (!readNumber(value, raw) || raw < 0.0f || raw > 100.0f) {
+    return false;
+  }
+  percent = raw <= 1.0f ? raw * 100.0f : raw;
+  return true;
+}
 
-  HTTPClient http;
-  String url = "http://" + String(U1_IP_ADDRESS) + 
-               "/printer/objects/query?print_stats&virtual_sdcard&temperature_sensor%20cavity&purifier&heater_bed&extruder&extruder1&toolhead";
-  http.begin(url);
-  http.setTimeout(1500);
+bool isTerminalPrintState(const char *state) {
+  if (state == nullptr) {
+    return false;
+  }
+  return strcmp(state, "complete") == 0 ||
+         strcmp(state, "cancelled") == 0 ||
+         strcmp(state, "error") == 0;
+}
 
-  int httpCode = http.GET();
-  if (httpCode == 200) {
-    String payload = http.getString();
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, payload);
+bool isKnownPrintState(const char *state) {
+  if (state == nullptr) {
+    return false;
+  }
+  return strcmp(state, "standby") == 0 || strcmp(state, "printing") == 0 ||
+         strcmp(state, "paused") == 0 || strcmp(state, "complete") == 0 ||
+         strcmp(state, "cancelled") == 0 || strcmp(state, "error") == 0;
+}
 
-    if (!error) {
-      JsonObject status = doc["result"]["status"];
-      JsonObject cavity = status["temperature_sensor cavity"];
-      JsonObject bed = status["heater_bed"];
-      JsonObject toolhead = status["toolhead"];
-      JsonArray position = toolhead["position"];
-      JsonObject virtualSdcard = status["virtual_sdcard"];
-      JsonObject printStats = status["print_stats"];
-      JsonObject purifier = status["purifier"];
+// activeHigh=false normalizes the active-low recirculation monitor.
+PwmSample readPwm(uint8_t pin, bool activeHigh) {
+  PwmSample sample;
+  const uint32_t highUs = pulseIn(pin, HIGH, PWM_SAMPLE_TIMEOUT_US);
+  const uint32_t lowUs = pulseIn(pin, LOW, PWM_SAMPLE_TIMEOUT_US);
 
-      const char* extruderName = toolhead["extruder"];
-      String activeExtName = (extruderName != nullptr) ? String(extruderName) : "extruder";
-
-      // Dynamically select the ACTIVE extruder based on toolhead (T0 vs T1)
-      JsonObject activeExtruder = (status.containsKey(activeExtName) && !status[activeExtName]["temperature"].isNull())
-                                  ? status[activeExtName]
-                                  : status["extruder"];
-
-      JsonVariant cavityValue = cavity["temperature"];
-      JsonVariant nozzleValue = activeExtruder["temperature"];
-      JsonVariant bedValue = bed["temperature"];
-      JsonVariant zValue = position[2];
-      JsonVariant progressValue = virtualSdcard["progress"];
-      JsonVariant durationValue = printStats["print_duration"];
-      const char* stateValue = printStats["state"];
-
-      if (status && cavity && activeExtruder && bed && toolhead && position &&
-          virtualSdcard && printStats &&
-          isFiniteNumber(cavityValue) && isFiniteNumber(nozzleValue) &&
-          isFiniteNumber(bedValue) && isFiniteNumber(zValue) &&
-          isFiniteNumber(progressValue) && isFiniteNumber(durationValue) &&
-          stateValue != nullptr) {
-        float parsedCavity = cavityValue.as<float>();
-        float parsedNozzle = nozzleValue.as<float>();
-        float parsedBed = bedValue.as<float>();
-        float parsedZ = zValue.as<float>();
-        float parsedProgress = progressValue.as<float>();
-        float parsedDuration = durationValue.as<float>();
-
-        // Reject values outside the physical/API ranges before refreshing the watchdog.
-        if (parsedCavity >= 1.0f && parsedCavity <= 85.0f &&
-            parsedNozzle >= 0.0f && parsedNozzle <= 400.0f &&
-            parsedBed >= 0.0f && parsedBed <= 150.0f &&
-            parsedZ >= -10.0f && parsedZ <= 500.0f &&
-            parsedProgress >= 0.0f && parsedProgress <= 1.0f &&
-            parsedDuration >= 0.0f && parsedDuration <= 4294967295.0f) {
-          chamberTemp = parsedCavity;
-          nozzleTemp  = parsedNozzle; // Live temperature of the active nozzle!
-          bedTemp     = parsedBed;
-          toolheadZ   = parsedZ;
-
-          // Toolhead identification
-          if (activeExtName == "extruder1") {
-            activeTool = "T1";
-          } else if (activeExtName == "extruder2") {
-            activeTool = "T2";
-          } else if (activeExtName == "extruder3") {
-            activeTool = "T3";
-          } else {
-            activeTool = "T0";
-          }
-
-          printProgress = parsedProgress;
-          printState    = stateValue;
-          printDuration = (unsigned long)parsedDuration;
-
-          // Parse Real Snapmaker U1 Dual-Fan Purifier structure:
-          float exhaustSpeed = 0.0f;
-          float innerSpeed   = 0.0f;
-          if (purifier && purifier.containsKey("exhaust_fan")) {
-            exhaustSpeed = purifier["exhaust_fan"]["speed"] | 0.0f;
-          }
-          if (purifier && purifier.containsKey("inner_fan")) {
-            innerSpeed = purifier["inner_fan"]["speed"] | 0.0f;
-          }
-
-          u1PurifierSpeed = max(exhaustSpeed, innerSpeed);
-          if (u1PurifierSpeed > 1.0f) u1PurifierSpeed /= 100.0f; // normalize 0-100 scale
-
-          // Detect hardware purge signal on Pin 5 (PA8)
-          bool hwPurgeActive = (digitalRead(PIN_U1_PURGE_SENSE) == HIGH);
-
-          // Decode SnOrca / Klipper command directly into our Mode enum
-          Mode detectedRemote = decodeU1Mode(purifier, hwPurgeActive);
-
-          // ARBITRATION: Did U1 command a new active state?
-          if (detectedRemote != lastDetectedRemote) {
-            lastDetectedRemote = detectedRemote;
-            if (detectedRemote != MODE_OFF) {
-              u1RemoteMode     = detectedRemote;
-              u1OverrideActive = true;
-              currentMode      = detectedRemote;
-            } else if (u1OverrideActive) {
-              // U1 went idle/off -> revert back to physical knob position
-              u1OverrideActive = false;
-              currentMode      = lastPhysicalSwitch;
-            }
-          }
-
-          // Success: Refresh watchdog and mark telemetry watchdog OK
-          lastValidPollTime   = millis();
-          telemetryWatchdogOk = true;
-          telemetryLost       = false;
-          http.end();
-          return;
-        }
-      }
+  if (highUs > 0 && lowUs > 0) {
+    const float periodUs = static_cast<float>(highUs + lowUs);
+    const float frequencyHz = 1000000.0f / periodUs;
+    if (frequencyHz < PWM_MIN_HZ || frequencyHz > PWM_MAX_HZ) {
+      return sample;
     }
+
+    sample.type = SampleType::PWM;
+    sample.rawDuty = 100.0f * static_cast<float>(highUs) / periodUs;
+    sample.activeDuty = activeHigh ? sample.rawDuty : 100.0f - sample.rawDuty;
+    sample.frequencyHz = frequencyHz;
+    return sample;
   }
 
-  // If HTTP failed, JSON was corrupt, or sensor was missing/insane:
-  http.end();
-  telemetryLost = true;
-  // Do NOT update lastValidPollTime!
-  // If stale for > COMM_TIMEOUT_MS, loop() will cut heater.
+  sample.type = SampleType::STATIC;
+  sample.level = digitalRead(pin) == HIGH;
+  sample.rawDuty = sample.level ? 100.0f : 0.0f;
+  sample.activeDuty = activeHigh ? sample.rawDuty : 100.0f - sample.rawDuty;
+  return sample;
 }
 
-void executeChamberLogic(unsigned long now) {
-  // CRITICAL FAIL-SAFE: If telemetry has never initialized or watchdog expired, heater MUST be off!
-  if (!telemetryWatchdogOk) {
-    applyActuators(currentServoAngle, currentNoctuaPWM, currentBlowerOn, false);
+// Require three consecutive PWM samples or stable static samples before
+// trusting a change, so transient edges do not become actuator commands.
+void updatePwmState(PwmState &state, const PwmSample &sample, uint32_t now) {
+  state.latest = sample;
+
+  if (sample.type == SampleType::PWM) {
+    if (state.validPwmSamples < PWM_SAMPLES_REQUIRED) {
+      state.validPwmSamples++;
+    }
+    state.stableStaticSamples = 0;
+    if (state.validPwmSamples >= PWM_SAMPLES_REQUIRED) {
+      state.valid = true;
+      state.activeDuty = sample.activeDuty;
+      state.rawDuty = sample.rawDuty;
+      state.frequencyHz = sample.frequencyHz;
+      state.lastValidMs = now;
+    }
     return;
   }
 
-  // 1. PURGE WITH THERMAL COOLDOWN GATE:
-  if (currentMode == MODE_PURGE) {
-    // If the physical knob was manually twisted to PURGE, evacuate immediately (bypass cooldown)
-    if (!u1OverrideActive) {
-      applyActuators(90, 255, false, false);
+  state.validPwmSamples = 0;
+  if (sample.type == SampleType::STATIC) {
+    if (state.stableStaticSamples == 0 ||
+        state.candidateStaticLevel != sample.level) {
+      state.candidateStaticLevel = sample.level;
+      state.stableStaticSamples = 1;
       return;
     }
 
-    // Remote U1 / End-of-print purge: enforce bed cooldown gate (<= 60C) to prevent warping!
-    bool bedSafeToPurge = (bedTemp <= 60.0f);
-    if (bedSafeToPurge) {
-      // Phase 2: Bed is cool. Open valve (90 deg), blast exhaust 100% outdoors, blower & heater OFF
-      applyActuators(90, 255, false, false);
-    } else {
-      // Phase 1 (Thermal Soak): Chamber stays SEALED (0 deg), blower ON (scrubbing VOCs), heater OFF
-      applyActuators(0, 0, true, false);
+    if (state.stableStaticSamples < PWM_SAMPLES_REQUIRED) {
+      state.stableStaticSamples++;
+    }
+    if (state.stableStaticSamples >= PWM_SAMPLES_REQUIRED) {
+      state.valid = true;
+      state.confirmedStaticLevel = sample.level;
+      state.activeDuty = sample.activeDuty;
+      state.rawDuty = sample.rawDuty;
+      state.frequencyHz = 0.0f;
+      state.lastValidMs = now;
     }
     return;
   }
 
-  // 2. Normal Mode State Machine (Shared by Physical Knob and U1 Remote Control)
-  switch (currentMode) {
-    case MODE_OFF:
-      applyActuators(0, 0, false, false);
-      break;
+  state.stableStaticSamples = 0;
+  if (now - state.lastValidMs > PWM_STALE_MS) {
+    state.valid = false;
+  }
+}
 
-    case MODE_LOW: // PLA: Flap wide open, exhaust cooling active
-      applyActuators(90, 180, false, false); // Valve 90, Noctua ~70%, Blower OFF, Heat OFF
-      break;
+// Keep relay polarity configurable for different heater switching modules.
+void setHeater(bool enabled) {
+  currentHeaterOn = enabled;
+  digitalWrite(PIN_HEATER_RELAY,
+               enabled ? HEATER_RELAY_ON_LEVEL : HEATER_RELAY_OFF_LEVEL);
+}
 
-    case MODE_MED: // PETG: Flap open, gentle exhaust draft
-      applyActuators(90, 40, false, false);  // Valve 90, Noctua ~15%, Blower OFF, Heat OFF
-      break;
+void setBlower(bool enabled) {
+  currentBlowerOn = enabled;
+  digitalWrite(PIN_BLOWER, enabled ? HIGH : LOW);
+}
 
-    case MODE_HI: { // ASA/PC: Sealed chamber, 100% recirculation, active heat
-      bool shouldHeat = currentHeaterOn; // Default: retain previous state (hysteresis)
+void setValve(bool open) {
+  if (valveOpen == open) {
+    return;
+  }
+  valveOpen = open;
+  currentServoAngle = open ? SERVO_OPEN_DEG : SERVO_CLOSED_DEG;
+  flapServo.write(currentServoAngle);
+  Serial.printf("VALVE command=%s angle=%u\n", open ? "OPEN" : "CLOSED",
+                static_cast<unsigned int>(currentServoAngle));
+}
 
-      // TELEMETRY GRACE PERIOD:
-      // If telemetry dropped (stale for > 3.5s) but within the 60s watchdog window,
-      // freeze last commanded heater state rather than evaluating hysteresis on frozen sensor values!
-      bool telemetryStale = (now - lastValidPollTime > POLL_INTERVAL_MS + 1500UL);
+bool pwmSignalStable(const PwmState &state) {
+  if (!state.valid || state.latest.type == SampleType::INVALID) {
+    return false;
+  }
+  if (state.latest.type == SampleType::PWM) {
+    return state.validPwmSamples >= PWM_SAMPLES_REQUIRED;
+  }
+  return u1heater::isStaticInputConfirmed(
+      state.valid, state.stableStaticSamples, PWM_SAMPLES_REQUIRED,
+      state.candidateStaticLevel, state.confirmedStaticLevel);
+}
 
-      if (!telemetryStale) {
-        // SOFTWARE OVER-TEMPERATURE CUTOFF: Hard safety limit at 60C
-        if (chamberTemp >= 60.0f) {
-          shouldHeat = false;
-        }
-        // PERSISTENT HYSTERESIS around targetChamberTemp (defaults to 50C)
-        else if (chamberTemp < (targetChamberTemp - 1.0f)) {
-          shouldHeat = true;
-        } else if (chamberTemp >= targetChamberTemp) {
-          shouldHeat = false;
-        }
-      }
+// Unknown inputs fail open. Without Moonraker data, GPIO 26 is the only exhaust
+// request source; a confirmed inactive request holds the current valve state.
+void updateValveCommand(uint32_t now) {
+  const bool signalUnknown =
+      !exhaustPwm.valid || now - exhaustPwm.lastValidMs > PWM_STALE_MS;
+  const float observedDuty =
+      exhaustPwm.latest.type == SampleType::PWM
+          ? exhaustPwm.latest.activeDuty
+          : exhaustPwm.activeDuty;
 
-      applyActuators(0, 0, true, shouldHeat); // Valve 0, Noctua 0, Blower ON, Heat controlled
-      break;
+  if (!telemetryEverValid) {
+    valveInactiveTiming = false;
+    if (!valveOpen) {
+      Serial.println("VALVE OPEN cause=WAITING_FOR_FIRST_TELEMETRY");
     }
+    setValve(true);
+    return;
+  }
 
-    case MODE_PURGE:
-      applyActuators(90, 255, false, false);
-      break;
+  const bool telemetryUnavailable =
+      !telemetry.valid || telemetryInvalid || telemetryTransportLost ||
+      linkState != LinkState::OK;
+  if (telemetryUnavailable) {
+    valveInactiveTiming = false;
+    const u1heater::ValveFallbackAction action =
+        u1heater::valveFallbackForUnavailableTelemetry(!signalUnknown,
+                                                       observedDuty);
+    if (action == u1heater::ValveFallbackAction::OPEN) {
+      if (!valveOpen) {
+        Serial.printf(
+            "VALVE OPEN cause=%s telemetry_unavailable=1 pwm_valid=%d "
+            "pwm_age_ms=%lu duty=%.1f\n",
+            signalUnknown ? "PWM_UNKNOWN" : "PWM_REQUEST", exhaustPwm.valid,
+            static_cast<unsigned long>(now - exhaustPwm.lastValidMs),
+            observedDuty);
+      }
+      setValve(true);
+    }
+    return;
+  }
+
+  if (signalUnknown) {
+    valveInactiveTiming = false;
+    if (!valveOpen) {
+      Serial.printf(
+          "VALVE OPEN cause=PWM_UNKNOWN telemetry_valid=%d link=%s "
+          "pwm_valid=%d pwm_age_ms=%lu sample_type=%d "
+          "latest_duty=%.1f confirmed_duty=%.1f\n",
+          telemetry.valid, linkStateName(linkState), exhaustPwm.valid,
+          static_cast<unsigned long>(now - exhaustPwm.lastValidMs),
+          static_cast<int>(exhaustPwm.latest.type),
+          exhaustPwm.latest.activeDuty, exhaustPwm.activeDuty);
+    }
+    setValve(true);
+    return;
+  }
+
+  const bool telemetryRequestsExhaust =
+      telemetry.exhaustFanPercent > 0.0f;
+  if (telemetryRequestsExhaust || observedDuty > 0.0f) {
+    valveInactiveTiming = false;
+    if (!valveOpen) {
+      Serial.printf(
+          "VALVE OPEN cause=%s api_exhaust=%.1f gpio26_duty=%.1f\n",
+          telemetryRequestsExhaust ? "API_REQUEST" : "PWM_REQUEST",
+          telemetry.exhaustFanPercent, observedDuty);
+    }
+    setValve(true);
+    return;
+  }
+
+  if (!valveInactiveTiming) {
+    valveInactiveTiming = true;
+    valveInactiveSince = now;
+  } else if (now - valveInactiveSince >= VALVE_CLOSE_DELAY_MS) {
+    setValve(false);
   }
 }
 
-void applyActuators(int servoAngle, int noctuaPWM, bool blowerOn, bool heatEnable) {
-  // SAFETY INTERLOCK: Never run exhaust fan against a closed butterfly valve!
-  noctuaPWM = constrain(noctuaPWM, 0, 255);
-  if (noctuaPWM > 0) {
-    servoAngle = 90; // Any exhaust flow requires the valve fully open
-  } else {
-    servoAngle = 0;  // No exhaust flow permits the sealed position
+const char *inhibitReasonName(u1heater::InhibitReason reason) {
+  using u1heater::InhibitReason;
+  switch (reason) {
+    case InhibitReason::NONE: return "NONE";
+    case InhibitReason::INVALID_TELEMETRY: return "INVALID_TELEMETRY";
+    case InhibitReason::TELEMETRY_TIMEOUT: return "TELEMETRY_TIMEOUT";
+    case InhibitReason::U1_POWER_UNDETECTED: return "U1_POWER_UNDETECTED";
+    case InhibitReason::MODE_INELIGIBLE: return "MODE_INELIGIBLE";
+    case InhibitReason::INVALID_TARGET: return "INVALID_TARGET";
+    case InhibitReason::INVALID_CHAMBER_TEMPERATURE:
+      return "INVALID_CHAMBER_TEMPERATURE";
+    case InhibitReason::BLOWER_REQUEST_OFF: return "BLOWER_REQUEST_OFF";
+    case InhibitReason::POST_PRINT_VENTING: return "POST_PRINT_VENTING";
+    case InhibitReason::PREHEAT_TIMEOUT: return "PREHEAT_TIMEOUT";
+    case InhibitReason::EXHAUST_REQUEST_HIGH: return "EXHAUST_REQUEST_HIGH";
+    case InhibitReason::EXHAUST_SIGNAL_UNKNOWN:
+      return "EXHAUST_SIGNAL_UNKNOWN";
   }
-
-  // Save current commanded state for rock-solid OLED display
-  currentServoAngle = servoAngle;
-  currentNoctuaPWM  = noctuaPWM;
-  currentBlowerOn   = blowerOn;
-  currentHeaterOn   = heatEnable;
-
-  // Send to hardware
-  flapServo.write(servoAngle);
-  analogWrite(PIN_NOCTUA_PWM, noctuaPWM);
-  digitalWrite(PIN_BLOWER, blowerOn ? HIGH : LOW);
-  // Active-LOW SSR: LOW = ON (Heater energized), HIGH = OFF (Heater dead)
-  digitalWrite(PIN_HEATER_RELAY, heatEnable ? LOW : HIGH);
+  return "UNKNOWN";
 }
 
-// Helper to format seconds cleanly as "30:23" (MM:SS or HH:MM) in exactly 5 characters
-void printColonTime(unsigned long totalSecs) {
-  unsigned long hrs = totalSecs / 3600;
-  unsigned long mins = (totalSecs % 3600) / 60;
-  unsigned long secs = totalSecs % 60;
-
-  if (hrs > 0) {
-    if (hrs < 10) display.print("0");
-    display.print(hrs);
-    display.print(":");
-    if (mins < 10) display.print("0");
-    display.print(mins);
-  } else {
-    if (mins < 10) display.print("0");
-    display.print(mins);
-    display.print(":");
-    if (secs < 10) display.print("0");
-    display.print(secs);
+const char *linkStateName(LinkState state) {
+  switch (state) {
+    case LinkState::WAITING: return "WAITING";
+    case LinkState::OK: return "OK";
+    case LinkState::LOST: return "LOST";
+    case LinkState::EXPIRED: return "EXPIRED";
+    case LinkState::INVALID: return "INVALID";
   }
+  return "UNKNOWN";
+}
+
+void debugSnapshot() {
+  Serial.printf(
+      "GPIO27 valid=%d duty=%.1f%% Hz=%.1f; "
+      "GPIO26 valid=%d duty=%.1f%% Hz=%.1f\n",
+      recircPwm.valid, recircPwm.activeDuty, recircPwm.frequencyHz,
+      exhaustPwm.valid, exhaustPwm.activeDuty, exhaustPwm.frequencyHz);
+  Serial.printf(
+      "OUTPUT heater=%d blower=%d valve=%s wifi=%d link=%s inhibit=%s\n",
+      currentHeaterOn, currentBlowerOn, valveOpen ? "OPEN" : "CLOSED",
+      WiFi.status() == WL_CONNECTED, linkStateName(linkState),
+      inhibitReasonName(inhibitReason));
+}
+
+void debugTelemetry(const String &payload) {
+  Serial.println("MOONRAKER RAW:");
+  Serial.println(payload);
+  Serial.printf(
+      "PARSED mode=%d power=%d target=%.2fC chamber=%.2fC "
+      "bed_target=%.2fC bed_valid=%d sd_active=%d/%d "
+      "inner=%.1f%% exhaust=%.1f%% print=%s\n",
+      telemetry.mode, telemetry.powerDetected, telemetry.targetC,
+      telemetry.chamberC, telemetry.heaterBedTargetC,
+      telemetry.heaterBedTargetValid, telemetry.sdFileActive,
+      telemetry.sdFileActivityValid, telemetry.innerFanPercent,
+      telemetry.exhaustFanPercent, printState.c_str());
+  debugSnapshot();
+}
+
+void applyTelemetry(const String &payload, JsonDocument &document) {
+  JsonObject result = document["result"];
+  JsonObject status = result["status"];
+  JsonObject purifier = status["purifier"];
+  JsonObject exhaustFan = purifier["exhaust_fan"];
+  JsonObject innerFan = purifier["inner_fan"];
+  JsonObject cavity = status["temperature_sensor cavity"];
+  JsonObject printStats = status["print_stats"];
+  JsonObject heaterBed = status["heater_bed"];
+  JsonObject virtualSdCard = status["virtual_sdcard"];
+
+  const JsonVariantConst powerValue = purifier["power_detected"];
+  const JsonVariantConst modeValue = purifier["mode"];
+  const JsonVariantConst targetValue = purifier["desired_chamber_temp"];
+  const JsonVariantConst cavityValue = cavity["temperature"];
+  const JsonVariantConst innerSpeedValue = innerFan["speed"];
+  const JsonVariantConst exhaustSpeedValue = exhaustFan["speed"];
+  const JsonVariantConst bedTargetValue = heaterBed["target"];
+  const JsonVariantConst sdFileActiveValue = virtualSdCard["is_active"];
+  const char *stateValue = printStats["state"];
+
+  // Safety-critical fields must be present and plausible; missing JSON values
+  // are rejected rather than silently interpreted as zero.
+  float modeNumber = 0.0f;
+  float targetC = 0.0f;
+  float chamberC = 0.0f;
+  float bedTargetC = 0.0f;
+  float innerFanPercent = 0.0f;
+  float exhaustFanPercent = 0.0f;
+  const bool requiredObjectsPresent =
+      result && status && purifier && exhaustFan && innerFan && cavity &&
+      printStats;
+  const bool requiredFieldsValid =
+      requiredObjectsPresent && powerValue.is<bool>() &&
+      readNumber(modeValue, modeNumber) && floorf(modeNumber) == modeNumber &&
+      modeNumber >= 0.0f && modeNumber <= 3.0f &&
+      readNumber(targetValue, targetC) && targetC >= 0.0f &&
+      targetC <= 100.0f && readNumber(cavityValue, chamberC) &&
+      chamberC >= -20.0f && chamberC <= 150.0f &&
+      normalizeFanSpeed(innerSpeedValue, innerFanPercent) &&
+      normalizeFanSpeed(exhaustSpeedValue, exhaustFanPercent) &&
+      isKnownPrintState(stateValue);
+  const bool heaterBedTargetValid =
+      readNumber(bedTargetValue, bedTargetC) && bedTargetC >= 0.0f &&
+      bedTargetC <= 150.0f;
+  const bool sdFileActivityValid = sdFileActiveValue.is<bool>();
+  const bool sdFileActive =
+      sdFileActivityValid && sdFileActiveValue.as<bool>();
+
+  if (!requiredFieldsValid) {
+    telemetryInvalid = true;
+    telemetry.valid = false;
+    policyState.heaterOn = false;
+    policyState.blowerRequested = false;
+    policyState.lastValidModeKnown = false;
+    policyState.idleBedPreheatActive = false;
+    policyState.cancelBlowerCooldown();
+    inhibitReason = u1heater::InhibitReason::INVALID_TELEMETRY;
+    setHeater(false);
+    setBlower(false);
+    linkState = LinkState::INVALID;
+    Serial.println("INVALID TELEMETRY: required field missing or out of range; heater OFF");
+    Serial.println("PARSED: invalid safety-critical fields");
+    Serial.println("MOONRAKER RAW:");
+    Serial.println(payload);
+    debugSnapshot();
+    return;
+  }
+
+  printState = stateValue;
+  printProgress = 0.0f;
+  progressValid = false;
+  float progress = 0.0f;
+  if (readNumber(status["virtual_sdcard"]["progress"], progress) &&
+      progress >= 0.0f && progress <= 1.0f) {
+    printProgress = progress;
+    progressValid = true;
+  }
+
+  const int mode = static_cast<int>(modeNumber);
+  // Treat terminal prints with a cooling mode or exhaust request as venting.
+  const bool postPrintVenting =
+      isTerminalPrintState(stateValue) &&
+      (mode == 1 || exhaustFanPercent > 0.0f);
+  telemetry = {
+      true,
+      powerValue.as<bool>(),
+      mode,
+      targetC,
+      chamberC,
+      heaterBedTargetValid,
+      bedTargetC,
+      strcmp(stateValue, "standby") == 0,
+      sdFileActivityValid,
+      sdFileActive,
+      innerFanPercent,
+      exhaustFanPercent,
+      postPrintVenting};
+
+  telemetryEverValid = true;
+  telemetryInvalid = false;
+  telemetryTransportLost = false;
+  lastValidPollTime = millis();
+  linkState = LinkState::OK;
+
+  const u1heater::Decision decision =
+#if defined(U1_BENCH_TEST) && U1_BENCH_TEST
+      u1heater::decide(telemetry, policyState, true, 0.0f,
+                       lastValidPollTime);
+#else
+      u1heater::decide(telemetry, policyState, pwmSignalStable(exhaustPwm),
+                       exhaustPwm.activeDuty, lastValidPollTime);
+#endif
+  inhibitReason = decision.reason;
+  setBlower(decision.blowerOn);
+  setHeater(decision.heaterOn);
+  debugTelemetry(payload);
+}
+
+void forceOutputsOff(u1heater::InhibitReason reason) {
+  if (reason == u1heater::InhibitReason::TELEMETRY_TIMEOUT) {
+    const u1heater::Decision decision =
+        u1heater::handleTelemetryTimeout(policyState, millis());
+    inhibitReason = decision.reason;
+    setHeater(decision.heaterOn);
+    setBlower(decision.blowerOn);
+    return;
+  }
+
+  policyState.heaterOn = false;
+  policyState.blowerRequested = false;
+  policyState.lastValidModeKnown = false;
+  policyState.idleBedPreheatActive = false;
+  policyState.cancelBlowerCooldown();
+  inhibitReason = reason;
+  setHeater(false);
+  setBlower(false);
+}
+
+void handleTransportFailure(int httpCode) {
+  telemetryTransportLost = true;
+  linkState = telemetryEverValid ? LinkState::LOST : LinkState::WAITING;
+  Serial.printf("Moonraker transport failure: HTTP %d\n", httpCode);
+  if (!telemetryEverValid) {
+    forceOutputsOff(u1heater::InhibitReason::INVALID_TELEMETRY);
+  }
+  debugSnapshot();
+}
+
+void handleInvalidResponse(const char *reason, const String &payload) {
+  telemetryInvalid = true;
+  telemetry.valid = false;
+  linkState = LinkState::INVALID;
+  forceOutputsOff(u1heater::InhibitReason::INVALID_TELEMETRY);
+  Serial.printf("Moonraker response rejected: %s; heater OFF\n", reason);
+  Serial.println("MOONRAKER RAW:");
+  Serial.println(payload);
+  Serial.println("PARSED: invalid JSON");
+  debugSnapshot();
+}
+
+void pollMoonraker() {
+  HTTPClient http;
+  const String url =
+      String("http://") + U1_IP_ADDRESS +
+      "/printer/objects/query?print_stats&virtual_sdcard&temperature_sensor%20cavity&heater_bed&purifier";
+  if (!http.begin(url)) {
+    handleTransportFailure(-1);
+    return;
+  }
+  http.setTimeout(HTTP_TIMEOUT_MS);
+  const int httpCode = http.GET();
+  if (httpCode != 200) {
+    http.end();
+    // Transport/server failures get the grace period; client errors fail off.
+    if (httpCode < 0 || httpCode >= 500) {
+      handleTransportFailure(httpCode);
+    } else {
+      handleInvalidResponse("unexpected HTTP status", String(httpCode));
+    }
+    return;
+  }
+
+  const String payload = http.getString();
+  http.end();
+
+  JsonDocument document;
+  const DeserializationError error = deserializeJson(document, payload);
+  if (error) {
+    handleInvalidResponse(error.c_str(), payload);
+    return;
+  }
+  applyTelemetry(payload, document);
+}
+
+void serviceTelemetryTimeouts(uint32_t now) {
+  if (policyState.preheatTimerStarted &&
+      u1heater::enforcePreheatTimeout(policyState, now)) {
+    inhibitReason = u1heater::InhibitReason::PREHEAT_TIMEOUT;
+    setHeater(false);
+  }
+
+  if (u1heater::enforceIdleBedPreheatTimeout(policyState, now)) {
+    const bool heaterWasOn = policyState.heaterOn;
+    policyState.heaterOn = false;
+    policyState.idleBedPreheatActive = false;
+    policyState.blowerRequested = false;
+    if (heaterWasOn) {
+      policyState.startBlowerCooldown(now);
+    }
+    inhibitReason = u1heater::InhibitReason::PREHEAT_TIMEOUT;
+    setHeater(false);
+    setBlower(policyState.blowerCooldownActive);
+  }
+
+  if (!telemetryEverValid || telemetryInvalid) {
+    return;
+  }
+  const uint32_t elapsed = now - lastValidPollTime;
+  // Keep the last command during transport grace, then force the heater off.
+  if (elapsed >= TELEMETRY_GRACE_MS) {
+    telemetryTransportLost = true;
+    linkState = LinkState::EXPIRED;
+    forceOutputsOff(u1heater::InhibitReason::TELEMETRY_TIMEOUT);
+  } else if (telemetryTransportLost) {
+    linkState = LinkState::LOST;
+  }
+}
+
+void serviceBlowerCooldown(uint32_t now) {
+  if (u1heater::expireBlowerCooldown(policyState, now)) {
+    setBlower(policyState.blowerRequested);
+  }
+}
+
+// Smooth the noisy on-chip sensor for display only; it is not a safety input.
+float readFilteredCpuTemperature() {
+  const float sample = temperatureRead();
+  if (!isfinite(sample)) {
+    return NAN;
+  }
+
+  if (!cpuTempFilterInitialized) {
+    filteredCpuTempC = sample;
+    cpuTempFilterInitialized = true;
+  } else {
+    filteredCpuTempC +=
+        CPU_TEMP_FILTER_ALPHA * (sample - filteredCpuTempC);
+  }
+  return filteredCpuTempC;
 }
 
 void updateDisplay() {
-  display.clearDisplay();
-  display.setTextWrap(false); // Prevents accidental character wrapping/line drop
-
-  // ========================================================
-  // 1. TOP YELLOW BAND (Rows 0 - 15): Mode & Graphical Progress
-  // ========================================================
-  display.setTextSize(1);
-  display.setCursor(0, 2);
-  if (u1OverrideActive) {
-    if (currentMode == MODE_PURGE) {
-      if (bedTemp <= 60.0f) {
-        display.print("PURGE [AUTO]");
-      } else {
-        display.print("COOLDOWN");
-      }
-    } else {
-      switch (currentMode) {
-        case MODE_LOW:   display.print("AUTO [PLA]");  break;
-        case MODE_MED:   display.print("AUTO [PETG]"); break;
-        case MODE_HI:    display.print("AUTO [ASA]");  break;
-        default:         display.print("AUTO [U1]");   break;
-      }
-    }
-  } else {
-    switch (currentMode) {
-      case MODE_OFF:   display.print("OFF");        break;
-      case MODE_LOW:   display.print("LOW [PLA]");  break;
-      case MODE_MED:   display.print("MED [PETG]"); break;
-      case MODE_HI:    display.print("HIGH [ASA]"); break;
-      case MODE_PURGE: display.print("PURGE [MAN]");break;
-    }
+  if (!displayAvailable) {
+    return;
   }
 
-  // Progress Percentage & Mini Graphical Progress Bar on Top Right
-  if (printState == "printing") {
-    int pct = (int)(printProgress * 100);
-    display.setCursor(74, 2);
-    if (pct < 10) display.print(" ");
-    display.print(pct);
-    display.print("%");
+  display.clearDisplay();
+  display.setTextWrap(false);
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
 
-    // Battery-style progress box at X=102, Y=2, W=25, H=7
-    display.drawRect(102, 2, 25, 7, SSD1306_WHITE);
-    int fillW = map(pct, 0, 100, 0, 21);
-    if (fillW > 0) {
-      display.fillRect(104, 4, fillW, 3, SSD1306_WHITE);
+  display.setCursor(0, 2);
+  if (telemetry.valid) {
+    if (policyState.idleBedPreheatActive) {
+      display.print("U1 IDLE HEAT");
+    } else {
+      switch (telemetry.mode) {
+        case 0: display.print("U1 IDLE"); break;
+        case 1: display.print("U1 COOLING"); break;
+        case 2: display.print("U1 PREHEAT"); break;
+        case 3: display.print("U1 HOT CHMBR"); break;
+        default: display.print("U1 UNKNOWN"); break;
+      }
     }
   } else {
-    display.setCursor(105, 2);
+    display.print("U1 WAIT");
+  }
+  if (printState == "printing" && progressValid) {
+    const int percent = static_cast<int>(printProgress * 100.0f);
+    display.setCursor(78, 2);
+    display.print(percent);
+    display.print("%");
+    display.drawRect(104, 2, 23, 7, SSD1306_WHITE);
+    const int fillWidth = map(percent, 0, 100, 0, 19);
+    if (fillWidth > 0) {
+      display.fillRect(106, 4, fillWidth, 3, SSD1306_WHITE);
+    }
+  } else {
+    display.setCursor(104, 2);
     display.print(WiFi.status() == WL_CONNECTED ? "WiFi" : "--");
   }
-
-  // Horizontal divider separating yellow and blue zones
   display.drawLine(0, 12, 128, 12, SSD1306_WHITE);
+  display.drawLine(63, 15, 63, 62, SSD1306_WHITE);
 
-  // ========================================================
-  // 2. BLUE SECTION (Rows 16 - 63): Shifted 1 Char Left (X=62)
-  // ========================================================
-
-  // Line 1 (Y = 16): Chamber Temp & PTC Heater Status
-  display.setCursor(0, 16);
-  display.print("CHMB:");
-  display.print(chamberTemp, 1);
-  display.print("C");
-
-  display.setCursor(62, 16);
-  display.print("| HTR: ");
-  // Active-LOW relay check: LOW = ON, HIGH = OFF (no trailing space to prevent wrap)
-  display.print(currentHeaterOn ? "ON" : "OFF");
-
-  // Line 2 (Y = 27): Bed Temp & Nozzle Temp
-  display.setCursor(0, 27);
-  display.print("BED: ");
-  display.print((int)bedTemp);
-  display.print("C");
-
-  display.setCursor(62, 27);
-  display.print("| NOZ: ");
-  display.print((int)nozzleTemp);
-  display.print("C");
-
-  // Line 3 (Y = 38): Butterfly Valve Status & Exhaust Fan Speed %
-  display.setCursor(0, 38);
-  display.print("VLV:");
-  display.print(currentServoAngle == 0 ? "CLOSED" : "OPEN  ");
-
-  display.setCursor(62, 38);
-  display.print("| EXH: ");
-  int exhPct = map(currentNoctuaPWM, 0, 255, 0, 100);
-  if (exhPct < 10) display.print(" ");
-  display.print(exhPct);
-  display.print("%");
-
-  // Line 4 (Y = 49): Telemetry Grace Countdown, Print Time/ETA, Cooldown Soak, or Purge Banner
-  display.setCursor(0, 49);
-  if (telemetryLost) {
-    // Telemetry dropped but still inside the 60s grace period: warn and count down
-    // to the heater suspension instead of drawing the now-stale TME/ETA values.
-    unsigned long elapsedWithoutData = millis() - lastValidPollTime;
-    unsigned long secLeft = (elapsedWithoutData < COMM_TIMEOUT_MS)
-                              ? (COMM_TIMEOUT_MS - elapsedWithoutData) / 1000
-                              : 0;
-    display.print("TELEM LOST");
-    display.setCursor(62, 49);
-    display.print("| CUT:");
-    if (secLeft < 10) display.print(" ");
-    display.print(secLeft);
-    display.print("s");
-  } else if (u1IsPurging) {
-    if (bedTemp <= 60.0f) {
-      display.print("U1 PURGE IN PROGRESS");
-    } else {
-      // Cooldown soak banner: e.g. "SOAK: BED 85C->60C" (fits cleanly in 128px)
-      display.print("SOAK: BED ");
-      display.print((int)bedTemp);
-      display.print("C->60C");
-    }
-  } else if (printState == "printing") {
-    display.print("TME:");
-    printColonTime(printDuration);
-
-    display.setCursor(62, 49);
-    display.print("| ETA:");
-    if (printProgress > 0.02) {
-      unsigned long totalEst = (unsigned long)(printDuration / printProgress);
-      unsigned long rem = (totalEst > printDuration) ? (totalEst - printDuration) : 0;
-      printColonTime(rem);
-    } else {
-      display.print(" -- ");
-    }
+  display.setCursor(0, 17);
+  display.print("CHBR: ");
+  if (telemetryEverValid) {
+    display.print(telemetry.chamberC, 0);
+    display.print("C");
   } else {
-    display.print("STATUS: ");
-    display.print(printState);
+    display.print("--C");
+  }
+  display.setCursor(67, 17);
+  display.print("TRGT: ");
+  if (telemetryEverValid) {
+    display.print(telemetry.targetC, 0);
+    display.print("C");
+  } else {
+    display.print("--C");
+  }
+
+  display.setCursor(0, 28);
+  display.print(currentHeaterOn ? "HTR: ON" : "HTR: OFF");
+  display.setCursor(67, 28);
+  display.print(currentBlowerOn ? "RCLN: ON" : "RCLN: OFF");
+
+  display.setCursor(0, 39);
+  display.print(valveOpen ? "VLV: OPEN" : "VLV: CLOSE");
+  display.setCursor(67, 39);
+  // Show the parsed U1 request here; GPIO 26's measured duty is logged on serial.
+  if (telemetry.valid) {
+    display.print("EXST: ");
+    display.print(telemetry.exhaustFanPercent, 0);
+    display.print("%");
+  } else {
+    display.print("EXST: --");
+  }
+
+  display.setCursor(0, 50);
+  switch (linkState) {
+    case LinkState::WAITING: display.print("TMRY: WAIT"); break;
+    case LinkState::OK: display.print("TMRY: OK"); break;
+    case LinkState::LOST: display.print("TMRY: LOST"); break;
+    case LinkState::EXPIRED: display.print("TMRY: OFF"); break;
+    case LinkState::INVALID: display.print("TMRY: BAD"); break;
+  }
+  display.setCursor(67, 50);
+  display.print("CPU: ");
+  const float cpuTemperatureC = readFilteredCpuTemperature();
+  if (isfinite(cpuTemperatureC)) {
+    display.print(cpuTemperatureC, 0);
+    display.print("C");
+  } else {
+    display.print("--C");
   }
   display.display();
+}
+
+void printPwmDebug(const char *name, const PwmState &state) {
+  Serial.printf("%s valid=%d active=%.1f%% raw=%.1f%% Hz=%.1f\n", name,
+                state.valid, state.activeDuty, state.rawDuty,
+                state.frequencyHz);
+}
+
+void setup() {
+  Serial.begin(115200);
+
+#if defined(U1_BENCH_TEST) && U1_BENCH_TEST
+  Serial.println(
+      "BENCH TEST: GPIO26 heater inhibit bypassed; PTC must be disconnected.");
+#endif
+  Serial.printf("HEATER relay polarity=%s\n",
+                HEATER_RELAY_ACTIVE_LOW ? "active-low" : "active-high");
+
+  // Set the configured OFF level before enabling the relay output.
+  digitalWrite(PIN_HEATER_RELAY, HEATER_RELAY_OFF_LEVEL);
+  pinMode(PIN_HEATER_RELAY, OUTPUT);
+  digitalWrite(PIN_BLOWER, LOW);
+  pinMode(PIN_BLOWER, OUTPUT);
+  pinMode(PIN_EXHAUST_PWM_MONITOR, INPUT);
+  pinMode(PIN_RECIRC_PWM_MONITOR, INPUT);
+
+  const int servoChannel = flapServo.attach(PIN_SERVO);
+  flapServo.write(SERVO_OPEN_DEG);
+  currentServoAngle = SERVO_OPEN_DEG;
+  valveOpen = true;
+  Serial.printf("SERVO attached=%d channel=%d boot_angle=%u pulse=%d us\n",
+                flapServo.attached(), servoChannel,
+                static_cast<unsigned int>(currentServoAngle),
+                flapServo.readMicroseconds());
+
+  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+  displayAvailable = display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR);
+  if (displayAvailable) {
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(0, 4);
+    display.println("U1 CONTROLLER");
+    display.drawLine(0, 14, SCREEN_WIDTH, 14, SSD1306_WHITE);
+    display.setCursor(0, 25);
+    display.println("HEATER: OFF");
+    display.println("WAITING FOR U1");
+    display.display();
+  }
+
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(false);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.println("U1-driven chamber controller starting; heater OFF");
+}
+
+void loop() {
+  const uint32_t now = millis();
+
+  // GPIO 26 participates in valve/heater safety; GPIO 27 is diagnostic only.
+  updatePwmState(exhaustPwm,
+                 readPwm(PIN_EXHAUST_PWM_MONITOR, true), now);
+  updatePwmState(recircPwm,
+                 readPwm(PIN_RECIRC_PWM_MONITOR, false), now);
+  updateValveCommand(now);
+#if !defined(U1_BENCH_TEST) || !U1_BENCH_TEST
+  if (telemetry.valid &&
+      (!pwmSignalStable(exhaustPwm) ||
+       exhaustPwm.activeDuty >=
+           u1heater::EXHAUST_HEAT_INHIBIT_PERCENT)) {
+    policyState.heaterOn = false;
+    inhibitReason = pwmSignalStable(exhaustPwm)
+                        ? u1heater::InhibitReason::EXHAUST_REQUEST_HIGH
+                        : u1heater::InhibitReason::EXHAUST_SIGNAL_UNKNOWN;
+    setHeater(false);
+  }
+#endif
+
+  if (WiFi.status() != WL_CONNECTED &&
+      (lastReconnectAttempt == 0 ||
+       now - lastReconnectAttempt >= RECONNECT_INTERVAL_MS)) {
+    lastReconnectAttempt = now;
+    WiFi.reconnect();
+    Serial.println("Wi-Fi reconnect requested");
+  }
+
+  if (!pollScheduled || now - lastPollTime >= POLL_INTERVAL_MS) {
+    pollScheduled = true;
+    lastPollTime = now;
+    if (WiFi.status() == WL_CONNECTED) {
+      pollMoonraker();
+    } else {
+      handleTransportFailure(0);
+    }
+  }
+
+  serviceTelemetryTimeouts(millis());
+  serviceBlowerCooldown(millis());
+
+  const uint32_t displayNow = millis();
+  if (displayNow - lastDisplayTime >= DISPLAY_INTERVAL_MS) {
+    lastDisplayTime = displayNow;
+    updateDisplay();
+  }
+  delay(5);
 }

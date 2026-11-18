@@ -11,7 +11,7 @@ The physical connector numbering below follows the user-provided authoritative d
 | 3 | Inner-fan tachometer | `PA6` | U1 tach input. Do not apply 24 V. Can be driven only with a level-safe 3.3 V pulse source if tach emulation is required. |
 | 4 | FLAG2 / purifier presence sense | `PA7` | Presence resistor: 1 kOhm from Pin 4 to Pin 2 enables the purifier controls. |
 | 5 | Exhaust PWM | `!PA8` | Active-high approximately 0-4.8 V PWM, about 997 Hz. Do not connect directly to an ESP32 GPIO without level conversion. |
-| 6 | +24 V VCC | - | U1 fused/supplied 24 V rail. Keep separate from ESP32 signal wiring. |
+| 6 | +24 V VCC | - | Fused U1 24 V supply to the Noctua exhaust fan only. The assembly uses the U1 onboard 24 V supply. |
 
 ## Bench measurements
 
@@ -42,7 +42,7 @@ Pin 1 is therefore an active-low variable PWM command with a roughly 3.3 V signa
 The standalone `pwm_input_test.ino` was tested with the U1 connected through the documented resistor networks:
 
 - Pin 1 to ESP32 GPIO 27 through 10 kOhm;
-- Pin 5 to ESP32 GPIO 26 through a 15 kOhm / 22 kOhm divider;
+- Pin 5 to ESP32 GPIO 26 through a 13 kOhm / 22 kOhm divider;
 - Pin 2 to ESP32 GND;
 - Pin 4 to Pin 2 through the 1 kOhm presence resistor;
 - ESP32 powered from USB;

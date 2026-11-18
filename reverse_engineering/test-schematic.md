@@ -13,7 +13,7 @@ This is a bench-only signal observation setup. It does not connect either extern
 
              Pin 5 PA8 (exhaust, approximately 0..5 V PWM)
                          |
-                       15 kOhm
+                       13 kOhm
                          |
                          +---------------- ESP32 GPIO 26
                          |
@@ -22,14 +22,14 @@ This is a bench-only signal observation setup. It does not connect either extern
              Pin 2 GND --+---------------- ESP32 GND
 
              Pin 4 FLAG2 --- 1 kOhm --- Pin 2 GND
-             Pin 6 +24 V:   NOT CONNECTED
+             Pin 6 +24 V:   NOT CONNECTED FOR THIS USB-POWERED BENCH TEST
              Pin 3 PA6:     NOT CONNECTED for this test
 ```
 
-The Pin 5 divider gives approximately 2.97 V at the ESP32 input when Pin 5 is 5 V:
+The Pin 5 divider gives approximately 3.14 V at the ESP32 input when Pin 5 is 5 V:
 
 ```text
-Vgpio = 5 V * 22 kOhm / (15 kOhm + 22 kOhm) = 2.97 V
+Vgpio = 5 V * 22 kOhm / (13 kOhm + 22 kOhm) = 3.14 V
 ```
 
 The Pin 1 10 kOhm resistor is a series protection resistor. Pin 1 has been measured at approximately 3.23 V maximum. Do not use this wiring until that level has been confirmed with the presence resistor installed.
@@ -40,7 +40,7 @@ The Pin 1 10 kOhm resistor is a series protection resistor. Pin 1 has been measu
 2. Power the ESP32 from USB only.
 3. Connect U1 Pin 2 to ESP32 GND.
 4. Connect Pin 1 through 10 kOhm to GPIO 27.
-5. Connect Pin 5 through the 15 kOhm/22 kOhm divider to GPIO 26.
+5. Connect Pin 5 through the 13 kOhm/22 kOhm divider to GPIO 26.
 6. Leave U1 Pin 6, Pin 3, GPIO 23, the 7530, and the heater disconnected.
 7. Flash `pwm_input_test.ino` and open the serial monitor at 115200 baud.
 8. Move each U1 slider and check the reported frequency, duty, and inferred state.

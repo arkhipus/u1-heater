@@ -1,6 +1,6 @@
 # Chamber controller wiring reference
 
-The original all-in-one schematic remains in `chamber_controller_schematic.drawio`. The companion diagrams are in `chamber_controller_wiring.drawio`:
+The verified as-built wiring is shown in `chamber_controller_schematic.drawio` and its checked PDF. The companion diagram `chamber_controller_wiring.drawio` predates the heater relay replacement; do not use its G3MB SSR control wiring. The verified as-built schematic is authoritative for the replacement 3.3 V relay module.
 
 - `01 Low Voltage and Signals`
 - `02 110V Heater Safety`
@@ -12,34 +12,36 @@ The original all-in-one schematic remains in `chamber_controller_schematic.drawi
 | Pin 1 / PA9 inner PWM | Pin 1 -> 10 kΩ series | R1 | GPIO 27 | Test-rig wiring; monitor only |
 | Pin 2 / GND | Common DC ground | - | ESP32 GND, fan returns | Required shared reference |
 | Pin 3 / PA6 | Inner-fan tachometer | - | Nothing | Leave N/C; do not connect or simulate tach |
-| Pin 4 / PA7 / FLAG2 | Accessory detection | Reserved | Nothing in current controller | Keep available only for validated accessory-detection work |
-| Pin 5 / PA8 exhaust PWM | Pin 5 -> 13 kΩ series | R3 | GPIO 26 | Monitor only |
+| Pin 4 / PA7 / FLAG2 | Purifier presence | 1 kΩ to Pin 2 | - | Follow the verified schematic |
+| Pin 5 / PA8 exhaust PWM | Direct PWM signal | - | Noctua blue PWM wire and GPIO 26 monitor | GPIO monitor uses R3 13 kΩ series |
 | GPIO 26 node | GPIO 26 -> 22 kΩ -> GND | R4 | Common GND | Divider return |
-| Pin 5 / PA8 exhaust PWM | Direct PWM signal | - | Noctua blue PWM wire | U1 provides variable exhaust control |
-| Pin 6 | Not used for controller power | - | Nothing | Switched/fused U1 output; unavailable in some modes |
+| Pin 6 | Fused U1 +24 V | - | Noctua red supply only | Do not use Pin 6 to power other loads |
 
-## External 24 V and 5 V wiring
+## U1 onboard 24 V and 5 V wiring
 
 | Source | Destination | Connection |
 |---|---|---|
-| UI power supply | Heater box | External +24 V and GND |
-| Heater-box +24 V | MP1584 input | IN+ / IN- |
+| U1 onboard 24 V supply | Heater-box 24 V bus | Powers the assembly as shown in the verified schematic |
+| U1 Pin 6 | Noctua exhaust fan | Fused +24 V supply for the fan only |
+| Heater-box 24 V bus | MP1584 input | IN+ / IN- |
 | MP1584 output | ESP32 | +5 V to VIN, GND to common ground |
 | MP1584 output | Servo | +5 V / GND |
-| MP1584 output | G3MB SSR control side | 5 V / GND; GPIO 25 drives IN |
-| External +24 V | Noctua red | Fan supply |
-| External +24 V | 7530 blower MOSFET supply | MOSFET DC+ |
-| External +24 V | AEDICO relay coil DC+ | Coil supply |
+| MP1584 output | Heater relay module control-side DC+ | +5 V as shown in the verified schematic |
+| Common ground | Heater relay module DC- | Common ground as shown in the verified schematic |
+| ESP32 3V3 | Heater relay module VCC | 3.3 V relay/module supply as shown in the verified schematic |
+| GPIO 25 | Heater relay module IN | Active-high control: HIGH = relay ON, LOW = relay OFF |
+| Heater-box 24 V bus | 7530 blower MOSFET supply | MOSFET DC+ |
+| Heater-box 24 V bus | AEDICO relay coil DC+ | Coil supply |
 
 ## Loads
 
 | Load | Positive / supply | Return | Control |
 |---|---|---|---|
-| Noctua 24 V PWM | External +24 V | Common GND | Blue wire from U1 Pin 5; green tach N/C |
-| 7530 blower | External +24 V through MOSFET OUT+ | MOSFET OUT- switched return | GPIO 23 |
+| Noctua 24 V PWM | U1 Pin 6, fused +24 V | Common GND | Blue wire from U1 Pin 5; green tach N/C |
+| 7530 blower | U1 onboard 24 V through MOSFET OUT+ | MOSFET OUT- switched return | GPIO 23 |
 | MG90S servo | +5 V buck output | Common GND | GPIO 18 |
-| AEDICO relay coil | External +24 V | MOSFET OUT- switched return | Energized only when GPIO 23 runs blower |
-| Heater | 110 V live through safety chain | Neutral bus | G3MB SSR output, GPIO 25, and AEDICO relay contact |
+| AEDICO relay coil | U1 onboard 24 V | MOSFET OUT- switched return | Energized only when GPIO 23 runs blower |
+| Heater | 110 V live through safety chain | Neutral bus | Replacement relay-module contacts, GPIO 25 control, and AEDICO interlock contact |
 
 ## 110 V live safety chain
 
@@ -47,7 +49,7 @@ The original all-in-one schematic remains in `chamber_controller_schematic.drawi
 AC Live
   -> KSD301 70°C NC thermostat
   -> AEDIKO relay COM/NO
-  -> G3MB SSR AC output
+  -> replacement relay-module contacts
   -> 121°C thermal fuse
   -> PTC heater live terminal
 ```
@@ -57,6 +59,8 @@ Neutral goes directly to the heater and pilot-light return. Protective earth bon
 ## Safety notes
 
 - Keep the 110 V zone physically separated from the ESP32, U1, and fan-control wiring.
-- Do not use U1 Pin 6 as the external 24 V supply.
+- U1 Pin 6 supplies the Noctua exhaust fan only.
 - The R1 10 kΩ-only Pin 1 connection is the tested rig connection, not a confirmed 5 V-to-3.3 V level shifter. Measure GPIO 27 before permanent installation.
-- The AEDICO relay coil is powered from external +24 V, but its return is the MOSFET-switched blower return. Therefore the relay should de-energize whenever GPIO23 turns the blower off. Verify the relay module accepts this switched-return arrangement and that the MOSFET can sink the combined blower and relay-coil current.
+- R3 is the 13 kΩ series resistor for the GPIO 26 exhaust monitor. The separate 15 kΩ component shown in the verified PDF is not R3.
+- The AEDICO relay coil is powered from the U1 onboard 24 V bus, but its return is the MOSFET-switched blower return. Therefore the relay should de-energize whenever GPIO23 turns the blower off. Verify the relay module accepts this switched-return arrangement and that the MOSFET can sink the combined blower and relay-coil current.
+- GPIO 25 is active-high for the replacement heater relay module (HIGH = ON, LOW = OFF). Keep its VCC/control supply wiring separate from GPIO 25 and follow the verified schematic. Confirm the module contact rating is suitable for the heater current before mains operation.

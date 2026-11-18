@@ -40,6 +40,12 @@ struct PwmReading {
   float frequencyHz;
 };
 
+struct TachReading {
+  bool valid;
+  float frequencyHz;
+  float rpm;
+};
+
 PwmReading readPwm(uint8_t pin, bool activeHigh) {
   unsigned long highUs = pulseIn(pin, HIGH, PULSE_TIMEOUT_US);
   unsigned long lowUs = pulseIn(pin, LOW, PULSE_TIMEOUT_US);
@@ -84,12 +90,6 @@ void setSimulatedTach(float requestedPercent) {
   ledcChangeFrequency(TACH_SIM_OUTPUT, actualHz, LEDC_RESOLUTION_BITS);
   ledcWrite(TACH_SIM_OUTPUT, LEDC_DUTY_HALF);
 }
-
-struct TachReading {
-  bool valid;
-  float frequencyHz;
-  float rpm;
-};
 
 TachReading readTach() {
   unsigned long highUs = pulseIn(TACH_INPUT, HIGH, PULSE_TIMEOUT_US);
