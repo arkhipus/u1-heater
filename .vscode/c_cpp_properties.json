@@ -1,0 +1,45 @@
+{
+  "configurations": [
+    {
+      "name": "ESP32",
+      "compilerPath": "${env:HOME}/Library/Arduino15/packages/esp32/tools/esp-x32/2601/bin/xtensa-esp32-elf-g++",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/arduino/esp32_heater.cpp",
+        "${env:HOME}/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/qio_qspi/include",
+        "${env:HOME}/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32",
+        "${env:HOME}/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/variants/esp32",
+        "${env:HOME}/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/libraries/WiFi/src",
+        "${env:HOME}/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/libraries/Network/src",
+        "${env:HOME}/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/libraries/HTTPClient/src",
+        "${env:HOME}/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/libraries/NetworkClientSecure/src",
+        "${env:HOME}/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/libraries/Wire/src",
+        "${env:HOME}/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/libraries/SPI/src",
+        "${env:HOME}/Documents/Arduino/libraries/ArduinoJson/src",
+        "${env:HOME}/Documents/Arduino/libraries/ESP32Servo/src",
+        "${env:HOME}/Documents/Arduino/libraries/Adafruit_GFX_Library",
+        "${env:HOME}/Documents/Arduino/libraries/Adafruit_BusIO",
+        "${env:HOME}/Documents/Arduino/libraries/Adafruit_SSD1306"
+      ],
+      "defines": [
+        "F_CPU=240000000L",
+        "ARDUINO=10607",
+        "ARDUINO_ESP32_DEV",
+        "ARDUINO_ARCH_ESP32",
+        "ARDUINO_BOARD=\"ESP32_DEV\"",
+        "ARDUINO_VARIANT=\"esp32\"",
+        "ARDUINO_PARTITION_default",
+        "ARDUINO_HOST_OS=\"macosx\"",
+        "ARDUINO_FQBN=\"esp32:esp32:esp32\"",
+        "ESP32=ESP32",
+        "CORE_DEBUG_LEVEL=0",
+        "ARDUINO_RUNNING_CORE=1",
+        "ARDUINO_EVENT_RUNNING_CORE=1",
+        "ARDUINO_USB_CDC_ON_BOOT=0"
+      ],
+      "cStandard": "c17",
+      "cppStandard": "gnu++17"
+    }
+  ],
+  "version": 4
+}
