@@ -225,7 +225,7 @@ These assignments are retained from the existing hardware design and are not bei
 
 The existing 128x64 OLED layout is retained: a compact title band with print percentage/progress at the upper right, a horizontal separator, and a vertical separator between two content columns.
 
-During bed-triggered idle chamber preheat, the title shows `U1 IDLE HEAT` instead of `U1 IDLE`.
+During bed-triggered idle chamber preheat, the title shows `U1 IDLE HEAT` instead of `U1 IDLE`. At startup, the OLED shows `Connecting to WiFi...` until connected, then displays the full ESP32 IPv4 address with a 10-second countdown. The countdown begins after connection; the address splash does not replay on later reconnects. Afterward the normal OLED view is restored, with print progress retained in the upper-right while printing.
 
 ```text
 AUTO [U1]          42% ▓▓▓
@@ -252,6 +252,10 @@ Show a space after each label's colon and show chamber and target temperatures a
 The final row doubles as the message row. Faults, stale telemetry, Wi-Fi loss, or post-print vent/cooling status replace the normal `TMRY:OK | CPU:xxC` values. Examples include `TMRY:LOST` and `WIFI:OFF`. Print progress, bed/nozzle temperatures, and print state may appear in the title or a secondary page, but must not displace the normal thermal and actuator fields.
 
 The `CPU:` value is a smoothed reading from the ESP32's on-chip sensor, not a calibrated CPU or chamber temperature. It is sampled with the display refresh and exponentially filtered (`alpha=0.1`, approximately 2.4 seconds time constant) for readability; display it for reference only, with no warning or heater-shutdown behavior. Show `--C` if the sensor read is invalid. The display shall not claim external blower RPM because no tachometer exists; `RCLN:ON` means commanded on, not proven airflow.
+
+### Read-only HTTP status
+
+The controller serves `GET http://<heater-ip>/api/status` on port 80. The JSON reports telemetry link state and age, print/purifier context, temperatures and fan requests, the bed-preheat state, commanded outputs, heater inhibit reason, exhaust PWM validity/duty, Wi-Fi/IP information, and CPU temperature when available. `telemetry.valid` describes the last parsed sample; `telemetry.fresh` and `telemetry.age_ms` distinguish current data from a cached sample during transport loss. Heater, blower, valve, and servo fields are commands, not proof of physical operation. The endpoint is read-only, exposes no raw payload or credentials, and must remain on the trusted LAN without port forwarding. Clients should poll no faster than once per second.
 
 ## 9. Staged validation sequence
 

@@ -232,7 +232,7 @@ VLV: OPEN     │ EXST: 60%
 TMRY: OK      │ CPU: 42C
 ```
 
-The title's upper-right area retains print percentage and the existing graphical progress indicator when a print is active. The top-left area shows the U1-reported effective mode and may show the command source if telemetry provides it. During bed-triggered idle chamber preheat, show `U1 IDLE HEAT` in place of `U1 IDLE`. The four content rows use the existing vertical split; each half-column must remain short enough for the default font.
+At startup, show `Connecting to WiFi...` until the ESP32 obtains a network connection. Then show its full IPv4 address with a 10-second countdown; begin the countdown only after Wi-Fi connects. After the countdown, switch to the normal OLED view and do not replay the address screen on later Wi-Fi reconnects. In normal view, the title's upper-right area retains print percentage and the existing graphical progress indicator when a print is active. The top-left area shows the U1-reported effective mode and may show the command source if telemetry provides it. During bed-triggered idle chamber preheat, show `U1 IDLE HEAT` in place of `U1 IDLE`. The four content rows use the existing vertical split; each half-column must remain short enough for the default font.
 
 Required normal-view fields:
 
@@ -251,6 +251,10 @@ The final row is also the message row. A fault, stale telemetry, Wi-Fi loss, or 
 Show a space after each label's colon. Show chamber and target temperatures as whole-number Celsius values. Use the compact labels `CHBR`, `TRGT`, `HTR`, `RCLN`, `VLV`, `EXST`, and `TMRY`. Keep the longest strings within their 63-pixel columns at the default 6-pixel character width; use `VLV: CLOSE` for the closed state so it fits.
 
 The `CPU:` value is a smoothed reading from the ESP32's on-chip sensor, not a calibrated CPU or chamber temperature. It is sampled with the display refresh and exponentially filtered (`alpha=0.1`, approximately 2.4 seconds time constant) for readability; display it for reference only, with no warning or heater-shutdown behavior. Show `--C` if the sensor read is invalid. The display must not show a fabricated external-blower RPM; `RCLN:ON` means commanded on, not proven airflow.
+
+### Read-only HTTP status
+
+The ESP32 shall expose `GET /api/status` on HTTP port 80 as a read-only JSON status endpoint. The response includes Wi-Fi/IP information; telemetry link state, freshness, age, print and purifier status; chamber/target/bed temperatures and fan requests; commanded heater/blower/valve state; the heater inhibit reason; measured exhaust PWM status; and the CPU-temperature estimate when available. Cached telemetry must be distinguished from fresh telemetry, and actuator fields describe commands rather than verified physical operation. Do not expose raw Moonraker payloads, credentials, or state-changing routes. Keep access within the trusted local network and do not port-forward the endpoint.
 
 ## 7. Staged verification plan
 

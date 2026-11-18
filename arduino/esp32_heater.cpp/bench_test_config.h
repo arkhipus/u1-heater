@@ -1,6 +1,6 @@
 #ifndef U1_BENCH_TEST
 // Set to 1 only for the pilot-light bench test with the PTC disconnected.
-#define U1_BENCH_TEST 1
+#define U1_BENCH_TEST 0
 #endif
 
 #ifndef HEATER_RELAY_ACTIVE_LOW

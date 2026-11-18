@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WebServer.h>
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
 #include <Wire.h>
@@ -35,6 +36,7 @@ constexpr uint32_t HTTP_TIMEOUT_MS = 1500;
 constexpr uint32_t TELEMETRY_GRACE_MS = 60000;
 constexpr uint32_t RECONNECT_INTERVAL_MS = 10000;
 constexpr uint32_t DISPLAY_INTERVAL_MS = 250;
+constexpr uint32_t IP_SPLASH_DURATION_MS = 10000;
 constexpr float CPU_TEMP_FILTER_ALPHA = 0.1f;
 constexpr uint32_t VALVE_CLOSE_DELAY_MS = 500;
 constexpr uint32_t PWM_SAMPLE_TIMEOUT_US = 2500;
@@ -71,6 +73,7 @@ struct PwmState {
 };
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+WebServer statusServer(80);
 Servo flapServo;
 PwmState exhaustPwm;
 PwmState recircPwm;
@@ -90,6 +93,9 @@ bool pollScheduled = false;
 float printProgress = 0.0f;
 float filteredCpuTempC = 0.0f;
 bool cpuTempFilterInitialized = false;
+bool ipSplashStarted = false;
+uint32_t ipSplashStartedAt = 0;
+String startupIpAddress;
 uint32_t lastValidPollTime = 0;
 uint32_t lastPollTime = 0;
 uint32_t lastDisplayTime = 0;
@@ -366,6 +372,110 @@ const char *linkStateName(LinkState state) {
     case LinkState::INVALID: return "INVALID";
   }
   return "UNKNOWN";
+}
+
+const char *purifierModeName(int mode) {
+  switch (mode) {
+    case 0: return "IDLE";
+    case 1: return "COOLING";
+    case 2: return "PREHEAT";
+    case 3: return "HOT_CHAMBER";
+  }
+  return "UNKNOWN";
+}
+
+void handleStatusRequest() {
+  JsonDocument response;
+  const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+  response["device"] = "u1-heater";
+  response["wifi_connected"] = wifiConnected;
+  if (wifiConnected) {
+    const IPAddress ip = WiFi.localIP();
+    response["ip_address"] = ip.toString();
+    response["ip_last_octet"] = ip[3];
+  } else {
+    response["ip_address"] = nullptr;
+    response["ip_last_octet"] = nullptr;
+  }
+
+  JsonObject telemetryStatus = response["telemetry"].to<JsonObject>();
+  telemetryStatus["valid"] = telemetry.valid;
+  telemetryStatus["fresh"] =
+      telemetry.valid && linkState == LinkState::OK;
+  telemetryStatus["link_state"] = linkStateName(linkState);
+  if (telemetryEverValid) {
+    telemetryStatus["age_ms"] =
+        static_cast<uint32_t>(millis() - lastValidPollTime);
+  } else {
+    telemetryStatus["age_ms"] = nullptr;
+  }
+  telemetryStatus["print_state"] = printState;
+  if (telemetry.valid) {
+    telemetryStatus["purifier_mode"] = telemetry.mode;
+    telemetryStatus["purifier_mode_name"] =
+        purifierModeName(telemetry.mode);
+    telemetryStatus["chamber_c"] = telemetry.chamberC;
+    telemetryStatus["target_c"] = telemetry.targetC;
+    if (telemetry.heaterBedTargetValid) {
+      telemetryStatus["bed_target_c"] = telemetry.heaterBedTargetC;
+    } else {
+      telemetryStatus["bed_target_c"] = nullptr;
+    }
+    telemetryStatus["bed_preheat_active"] =
+        policyState.idleBedPreheatActive;
+    telemetryStatus["sd_file_activity_valid"] =
+        telemetry.sdFileActivityValid;
+    if (telemetry.sdFileActivityValid) {
+      telemetryStatus["sd_file_active"] = telemetry.sdFileActive;
+    } else {
+      telemetryStatus["sd_file_active"] = nullptr;
+    }
+    telemetryStatus["inner_fan_request_percent"] =
+        telemetry.innerFanPercent;
+    telemetryStatus["exhaust_request_percent"] =
+        telemetry.exhaustFanPercent;
+    telemetryStatus["post_print_venting"] = telemetry.postPrintVenting;
+  } else {
+    telemetryStatus["purifier_mode"] = nullptr;
+    telemetryStatus["purifier_mode_name"] = nullptr;
+    telemetryStatus["chamber_c"] = nullptr;
+    telemetryStatus["target_c"] = nullptr;
+    telemetryStatus["bed_target_c"] = nullptr;
+    telemetryStatus["bed_preheat_active"] = false;
+    telemetryStatus["sd_file_activity_valid"] = false;
+    telemetryStatus["sd_file_active"] = nullptr;
+    telemetryStatus["inner_fan_request_percent"] = nullptr;
+    telemetryStatus["exhaust_request_percent"] = nullptr;
+    telemetryStatus["post_print_venting"] = nullptr;
+  }
+
+  JsonObject outputs = response["outputs"].to<JsonObject>();
+  outputs["heater_commanded_on"] = currentHeaterOn;
+  outputs["heater_inhibit_reason"] = inhibitReasonName(inhibitReason);
+  outputs["blower_commanded_on"] = currentBlowerOn;
+  outputs["valve_commanded_open"] = valveOpen;
+  outputs["servo_angle_deg"] = currentServoAngle;
+  outputs["exhaust_pwm_known"] = pwmSignalStable(exhaustPwm);
+  if (pwmSignalStable(exhaustPwm)) {
+    outputs["physical_exhaust_request_percent"] = exhaustPwm.activeDuty;
+  } else {
+    outputs["physical_exhaust_request_percent"] = nullptr;
+  }
+
+  if (cpuTempFilterInitialized && isfinite(filteredCpuTempC)) {
+    response["cpu_temperature_c"] = filteredCpuTempC;
+  } else {
+    response["cpu_temperature_c"] = nullptr;
+  }
+
+  String body;
+  serializeJson(response, body);
+  statusServer.sendHeader("Cache-Control", "no-store");
+  statusServer.send(200, "application/json", body);
+}
+
+void handleStatusNotFound() {
+  statusServer.send(404, "application/json", "{\"error\":\"not_found\"}");
 }
 
 void debugSnapshot() {
@@ -648,8 +758,61 @@ float readFilteredCpuTemperature() {
   return filteredCpuTempC;
 }
 
+void startIpSplashWhenConnected(uint32_t now) {
+  if (!ipSplashStarted && WiFi.status() == WL_CONNECTED) {
+    ipSplashStarted = true;
+    ipSplashStartedAt = now;
+    startupIpAddress = WiFi.localIP().toString();
+  }
+}
+
+void updateIpSplash(uint32_t now) {
+  const uint32_t elapsed = now - ipSplashStartedAt;
+  const uint32_t remainingMs = IP_SPLASH_DURATION_MS - elapsed;
+  const uint32_t secondsRemaining = (remainingMs + 999) / 1000;
+  const String countdown = String("Normal in ") + secondsRemaining + "s";
+  const int16_t ipWidth = startupIpAddress.length() * 6;
+  const int16_t countdownWidth = countdown.length() * 6;
+
+  display.clearDisplay();
+  display.setTextWrap(false);
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(16, 4);
+  display.print("U1 CONTROLLER IP");
+  display.drawLine(0, 15, SCREEN_WIDTH, 15, SSD1306_WHITE);
+  display.setCursor((SCREEN_WIDTH - ipWidth) / 2, 27);
+  display.print(startupIpAddress);
+  display.drawLine(0, 42, SCREEN_WIDTH, 42, SSD1306_WHITE);
+  display.setCursor((SCREEN_WIDTH - countdownWidth) / 2, 51);
+  display.print(countdown);
+  display.display();
+}
+
 void updateDisplay() {
   if (!displayAvailable) {
+    return;
+  }
+
+  const uint32_t now = millis();
+  if (!ipSplashStarted && WiFi.status() == WL_CONNECTED) {
+    startIpSplashWhenConnected(now);
+  }
+  if (!ipSplashStarted) {
+    display.clearDisplay();
+    display.setTextWrap(false);
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(16, 4);
+    display.print("U1 CONTROLLER");
+    display.drawLine(0, 15, SCREEN_WIDTH, 15, SSD1306_WHITE);
+    display.setCursor(1, 28);
+    display.print("Connecting to WiFi...");
+    display.display();
+    return;
+  }
+  if (ipSplashStarted && now - ipSplashStartedAt < IP_SPLASH_DURATION_MS) {
+    updateIpSplash(now);
     return;
   }
 
@@ -797,11 +960,15 @@ void setup() {
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  statusServer.on("/api/status", HTTP_GET, handleStatusRequest);
+  statusServer.onNotFound(handleStatusNotFound);
+  statusServer.begin();
   Serial.println("U1-driven chamber controller starting; heater OFF");
 }
 
 void loop() {
   const uint32_t now = millis();
+  startIpSplashWhenConnected(now);
 
   // GPIO 26 participates in valve/heater safety; GPIO 27 is diagnostic only.
   updatePwmState(exhaustPwm,
@@ -848,5 +1015,6 @@ void loop() {
     lastDisplayTime = displayNow;
     updateDisplay();
   }
+  statusServer.handleClient();
   delay(5);
 }
